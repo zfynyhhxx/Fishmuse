@@ -1,6 +1,7 @@
 use fishmuse_storage::Database;
 use sqlx::Row;
 use tempfile::TempDir;
+use tokio::time::{Duration, timeout};
 
 #[tokio::test]
 async fn corrupt_database_returns_safe_error_without_overwriting_source() {
@@ -61,4 +62,53 @@ async fn failed_backup_does_not_report_or_publish_a_backup_file() {
 
     assert!(result.is_err());
     assert!(!destination.is_file());
+}
+
+#[tokio::test]
+async fn publish_failure_after_snapshot_removes_the_exact_partial_backup() {
+    let directory = TempDir::new().expect("temporary directory");
+    let source = directory.path().join("source.db");
+    let destination = directory.path().join("backup.db");
+    let database = Database::open(&source).await.expect("source database");
+    sqlx::query("CREATE TABLE backup_payload(data BLOB NOT NULL)")
+        .execute(database.pool())
+        .await
+        .expect("backup payload table");
+    sqlx::query("INSERT INTO backup_payload(data) VALUES (zeroblob(67108864))")
+        .execute(database.pool())
+        .await
+        .expect("large backup payload");
+
+    let parent = directory.path().to_path_buf();
+    let blocker_destination = destination.clone();
+    let publish_blocker = tokio::spawn(async move {
+        loop {
+            let mut entries = tokio::fs::read_dir(&parent)
+                .await
+                .expect("read valid backup parent");
+            while let Some(entry) = entries.next_entry().await.expect("read backup entry") {
+                let name = entry.file_name();
+                let name = name.to_string_lossy();
+                if name.starts_with(".backup.db.") && name.ends_with(".partial") {
+                    let partial = entry.path();
+                    tokio::fs::create_dir(&blocker_destination)
+                        .await
+                        .expect("block atomic publication after snapshot starts");
+                    return partial;
+                }
+            }
+            tokio::task::yield_now().await;
+        }
+    });
+
+    let result = database.create_backup(&destination).await;
+    let partial = timeout(Duration::from_secs(10), publish_blocker)
+        .await
+        .expect("partial snapshot should be observed")
+        .expect("publication blocker task");
+
+    assert!(result.is_err());
+    assert!(destination.is_dir(), "the blocker must remain a directory");
+    assert!(!destination.is_file(), "no backup database was published");
+    assert!(!partial.exists(), "failed publication leaked {partial:?}");
 }
