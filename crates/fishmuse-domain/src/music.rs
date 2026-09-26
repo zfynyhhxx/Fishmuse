@@ -71,18 +71,11 @@ pub enum SourceProvenance {
     NetEase,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum PlaybackBackend {
-    Foobar2000,
-}
-
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct PlayableSource {
     pub track_id: TrackId,
     pub media_asset_id: MediaAssetId,
-    pub backend: PlaybackBackend,
     pub subsong_index: Option<u32>,
     pub start_ms: Option<u64>,
     pub end_ms: Option<u64>,

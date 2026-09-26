@@ -1,8 +1,9 @@
 use fishmuse_domain::{
     AppError, ArtistId, DiscNumber, ErrorCategory, ErrorCode, LibraryItem, MediaAssetId,
-    PlayableSource, PlaybackBackend, RecordingId, ReleaseId, SourceProvenance, TrackId,
-    TrackNumber, TrackSummary, UserId,
+    PlayableSource, RecordingId, ReleaseId, SourceProvenance, TrackId, TrackNumber, TrackSummary,
+    UserId,
 };
+use uuid::Uuid;
 
 fn track_summary() -> TrackSummary {
     TrackSummary {
@@ -31,6 +32,16 @@ fn domain_ids_round_trip_as_uuid_v7_json_and_remain_distinct_types() {
     accepts_track_id(TrackId::new());
     let _artist_id = ArtistId::new();
     let _release_id = ReleaseId::new();
+}
+
+#[test]
+fn domain_ids_reject_non_v7_construction_and_json_payloads() {
+    let version_four = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000")
+        .expect("fixture is a valid UUID v4");
+
+    assert!(UserId::try_from_uuid(version_four).is_err());
+    assert!(serde_json::from_str::<UserId>(r#""550e8400-e29b-41d4-a716-446655440000""#).is_err());
+    assert!(serde_json::from_str::<TrackId>(r#""00000000-0000-0000-0000-000000000000""#).is_err());
 }
 
 #[test]
@@ -67,7 +78,7 @@ fn app_error_serialization_keeps_technical_context_out_of_user_payloads() {
 }
 
 #[test]
-fn library_item_and_playable_source_serialize_only_logical_identifiers() {
+fn playable_source_payload_uses_logical_identifiers_without_backend_selection() {
     let item = LibraryItem {
         track: track_summary(),
         release: None,
@@ -76,7 +87,6 @@ fn library_item_and_playable_source_serialize_only_logical_identifiers() {
     let source = PlayableSource {
         track_id: item.track.id,
         media_asset_id: MediaAssetId::new(),
-        backend: PlaybackBackend::Foobar2000,
         subsong_index: None,
         start_ms: None,
         end_ms: None,
@@ -88,6 +98,7 @@ fn library_item_and_playable_source_serialize_only_logical_identifiers() {
     assert!(!item_json.contains(r"C:\\Users\\fish\\Music"));
     assert!(!source_json.contains(r"C:\\Users\\fish\\Music"));
     assert!(source_json.contains("media_asset_id"));
+    assert!(!source_json.contains("backend"));
     assert!(!source_json.contains("path"));
 }
 

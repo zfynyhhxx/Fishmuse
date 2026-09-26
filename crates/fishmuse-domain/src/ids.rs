@@ -1,11 +1,22 @@
-use serde::{Deserialize, Serialize};
+use std::fmt;
+
+use serde::{Deserialize, Deserializer, Serialize};
 use uuid::Uuid;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct InvalidDomainId;
+
+impl fmt::Display for InvalidDomainId {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("domain IDs must use UUID v7")
+    }
+}
+
+impl std::error::Error for InvalidDomainId {}
 
 macro_rules! domain_id {
     ($name:ident) => {
-        #[derive(
-            Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize,
-        )]
+        #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
         #[serde(transparent)]
         pub struct $name(Uuid);
 
@@ -16,9 +27,12 @@ macro_rules! domain_id {
                 Self(Uuid::now_v7())
             }
 
-            #[must_use]
-            pub const fn from_uuid(uuid: Uuid) -> Self {
-                Self(uuid)
+            pub fn try_from_uuid(uuid: Uuid) -> Result<Self, InvalidDomainId> {
+                if uuid.get_version_num() == 7 {
+                    Ok(Self(uuid))
+                } else {
+                    Err(InvalidDomainId)
+                }
             }
 
             #[must_use]
@@ -27,9 +41,21 @@ macro_rules! domain_id {
             }
         }
 
-        impl From<Uuid> for $name {
-            fn from(value: Uuid) -> Self {
-                Self::from_uuid(value)
+        impl TryFrom<Uuid> for $name {
+            type Error = InvalidDomainId;
+
+            fn try_from(value: Uuid) -> Result<Self, Self::Error> {
+                Self::try_from_uuid(value)
+            }
+        }
+
+        impl<'de> Deserialize<'de> for $name {
+            fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+            where
+                D: Deserializer<'de>,
+            {
+                let uuid = Uuid::deserialize(deserializer)?;
+                Self::try_from_uuid(uuid).map_err(serde::de::Error::custom)
             }
         }
     };
