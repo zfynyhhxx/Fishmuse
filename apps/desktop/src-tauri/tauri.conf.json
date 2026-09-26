@@ -4,8 +4,8 @@
   "version": "0.1.0",
   "identifier": "com.fishmuse.desktop",
   "build": {
-    "beforeDevCommand": "pnpm --dir .. dev --host 127.0.0.1",
-    "beforeBuildCommand": "pnpm --dir .. build",
+    "beforeDevCommand": "pnpm dev --host 127.0.0.1",
+    "beforeBuildCommand": "pnpm build",
     "devUrl": "http://127.0.0.1:5173",
     "frontendDist": "../dist"
   },

@@ -10,6 +10,8 @@ pnpm --filter @fishmuse/desktop test --run
 pnpm --filter @fishmuse/desktop typecheck
 pnpm --filter @fishmuse/desktop lint
 cargo check --workspace
+cargo test --workspace
+cargo clippy --workspace -- -D warnings
 cargo fmt --all -- --check
 ```
 
@@ -22,6 +24,6 @@ cargo fmt --all -- --check
 
 ## Repository hygiene
 
-- Never commit API keys, credentials, `.env` files, database files, local performance reports, or media samples.
+- Never commit API keys, credentials, `.env` files, database files, local logs, local performance reports, or media samples.
 - Keep generated dependencies and plugin build output outside version control.
 - Add behavior through a failing test first, then implement the smallest passing change.
