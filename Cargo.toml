@@ -1,0 +1,10 @@
+[workspace]
+members = ["apps/desktop/src-tauri"]
+# Subsequent tasks add each crate under crates/ as its Cargo.toml is created.
+resolver = "2"
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.98"
+license = "MIT"
+authors = ["FishMuse contributors"]

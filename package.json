@@ -1,0 +1,14 @@
+{
+  "name": "fishmuse",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@11.25.0",
+  "scripts": {
+    "dev": "pnpm --filter @fishmuse/desktop dev",
+    "test": "pnpm --filter @fishmuse/desktop test --run",
+    "lint": "pnpm --filter @fishmuse/desktop lint",
+    "typecheck": "pnpm --filter @fishmuse/desktop typecheck",
+    "tauri:dev": "pnpm --filter @fishmuse/desktop tauri:dev",
+    "tauri:build": "pnpm --filter @fishmuse/desktop tauri:build"
+  }
+}
