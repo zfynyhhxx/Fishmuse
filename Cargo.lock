@@ -772,6 +772,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "fishmuse-domain"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "time",
+ "uuid",
+]
+
+[[package]]
 name = "flate2"
 version = "1.1.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"

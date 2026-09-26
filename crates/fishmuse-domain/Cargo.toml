@@ -1,0 +1,15 @@
+[package]
+name = "fishmuse-domain"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+time = { version = "0.3", features = ["serde"] }
+uuid = { version = "1", features = ["serde", "v7"] }
+
+[dev-dependencies]
+serde_json = "1.0"

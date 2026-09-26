@@ -1,5 +1,5 @@
 [workspace]
-members = ["apps/desktop/src-tauri"]
+members = ["apps/desktop/src-tauri", "crates/fishmuse-domain"]
 # Subsequent tasks add each crate under crates/ as its Cargo.toml is created.
 resolver = "2"
 
