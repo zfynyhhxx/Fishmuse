@@ -272,6 +272,131 @@ async fn fts_projection_tracks_insert_update_and_delete() {
 }
 
 #[tokio::test]
+async fn fts_projection_tracks_credit_artist_and_release_mutations() {
+    let database = Database::open_in_memory().await.expect("database");
+    let user = database.ensure_local_user().await.expect("local user");
+    let user_text = user.as_uuid().to_string();
+    let recording = uuid::Uuid::now_v7().to_string();
+    let release = uuid::Uuid::now_v7().to_string();
+    let first_artist = uuid::Uuid::now_v7().to_string();
+    let second_artist = uuid::Uuid::now_v7().to_string();
+    let track = uuid::Uuid::now_v7().to_string();
+    sqlx::query("INSERT INTO recordings(recording_id, user_id, title) VALUES (?, ?, ?)")
+        .bind(&recording)
+        .bind(&user_text)
+        .bind("Recording")
+        .execute(database.pool())
+        .await
+        .expect("recording");
+    sqlx::query("INSERT INTO releases(release_id, user_id, title) VALUES (?, ?, ?)")
+        .bind(&release)
+        .bind(&user_text)
+        .bind("First Release")
+        .execute(database.pool())
+        .await
+        .expect("release");
+    for (artist, name) in [
+        (&first_artist, "First Artist"),
+        (&second_artist, "Second Artist"),
+    ] {
+        sqlx::query("INSERT INTO artists(artist_id, user_id, name) VALUES (?, ?, ?)")
+            .bind(artist)
+            .bind(&user_text)
+            .bind(name)
+            .execute(database.pool())
+            .await
+            .expect("artist");
+    }
+    sqlx::query("INSERT INTO tracks(track_id, user_id, recording_id, release_id, title) VALUES (?, ?, ?, ?, ?)")
+        .bind(&track)
+        .bind(&user_text)
+        .bind(&recording)
+        .bind(&release)
+        .bind("Track")
+        .execute(database.pool())
+        .await
+        .expect("track");
+    sqlx::query(
+        "INSERT INTO track_artists(user_id, track_id, artist_id, position) VALUES (?, ?, ?, 0)",
+    )
+    .bind(&user_text)
+    .bind(&track)
+    .bind(&first_artist)
+    .execute(database.pool())
+    .await
+    .expect("credit");
+    assert_eq!(
+        scalar_i64(&database, "SELECT COUNT(*) FROM library_fts WHERE library_fts MATCH 'artist:\"First Artist\" AND release_title:\"First Release\"'").await,
+        1
+    );
+
+    sqlx::query("UPDATE track_artists SET artist_id = ? WHERE user_id = ? AND track_id = ? AND artist_id = ?")
+        .bind(&second_artist)
+        .bind(&user_text)
+        .bind(&track)
+        .bind(&first_artist)
+        .execute(database.pool())
+        .await
+        .expect("update credit");
+    assert_eq!(
+        scalar_i64(
+            &database,
+            "SELECT COUNT(*) FROM library_fts WHERE library_fts MATCH 'artist:\"First Artist\"'"
+        )
+        .await,
+        0
+    );
+    assert_eq!(
+        scalar_i64(
+            &database,
+            "SELECT COUNT(*) FROM library_fts WHERE library_fts MATCH 'artist:\"Second Artist\"'"
+        )
+        .await,
+        1
+    );
+
+    sqlx::query("UPDATE artists SET name = ? WHERE user_id = ? AND artist_id = ?")
+        .bind("Renamed Artist")
+        .bind(&user_text)
+        .bind(&second_artist)
+        .execute(database.pool())
+        .await
+        .expect("rename artist");
+    assert_eq!(
+        scalar_i64(
+            &database,
+            "SELECT COUNT(*) FROM library_fts WHERE library_fts MATCH 'artist:\"Second Artist\"'"
+        )
+        .await,
+        0
+    );
+    assert_eq!(
+        scalar_i64(
+            &database,
+            "SELECT COUNT(*) FROM library_fts WHERE library_fts MATCH 'artist:\"Renamed Artist\"'"
+        )
+        .await,
+        1
+    );
+
+    sqlx::query("UPDATE releases SET title = ? WHERE user_id = ? AND release_id = ?")
+        .bind("Renamed Release")
+        .bind(&user_text)
+        .bind(&release)
+        .execute(database.pool())
+        .await
+        .expect("rename release");
+    assert_eq!(
+        scalar_i64(&database, "SELECT COUNT(*) FROM library_fts WHERE library_fts MATCH 'release_title:\"First Release\"'").await,
+        0
+    );
+    assert_eq!(
+        scalar_i64(&database, "SELECT COUNT(*) FROM library_fts WHERE library_fts MATCH 'release_title:\"Renamed Release\"'").await,
+        1
+    );
+}
+
+#[tokio::test]
 async fn deleting_media_asset_never_deletes_canonical_or_history_rows() {
     let database = Database::open_in_memory().await.expect("database");
     let user = database.ensure_local_user().await.expect("local user");

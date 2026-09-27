@@ -239,3 +239,96 @@ async fn scanned_asset_without_a_projection_is_attached_in_place() {
     .expect("attached track");
     assert_eq!(stored_track, outcome.track_id.as_uuid().to_string());
 }
+
+#[tokio::test]
+async fn same_path_with_changed_fingerprint_gets_a_new_projection_and_preserves_history() {
+    let (database, user, importer) = setup().await;
+    let asset = MediaAssetId::new();
+    let first = importer
+        .import(import(
+            asset,
+            "replace/song.flac",
+            "fingerprint-original",
+            "Song",
+        ))
+        .await
+        .expect("original import");
+    sqlx::query("INSERT INTO listening_events(listen_id, user_id, track_id, started_at, listened_ms, completed) VALUES (?, ?, ?, ?, ?, ?)")
+        .bind(fishmuse_domain::ListenId::new().as_uuid().to_string())
+        .bind(user.as_uuid().to_string())
+        .bind(first.track_id.as_uuid().to_string())
+        .bind(1_800_000_000_i64)
+        .bind(1_000_i64)
+        .bind(true)
+        .execute(database.pool())
+        .await
+        .expect("history");
+    let mut replacement = import(
+        asset,
+        "replace/song.flac",
+        "fingerprint-replacement",
+        "Song",
+    );
+    replacement.tags.album = Some("Replacement Album".to_owned());
+    replacement.tags.track_number = Some(9);
+
+    let second = importer
+        .import(replacement)
+        .await
+        .expect("replacement import");
+
+    assert_eq!(second.media_asset_id, asset);
+    assert_ne!(second.track_id, first.track_id);
+    assert_ne!(second.recording_id, first.recording_id);
+    assert!(second.possible_match);
+    let asset_projection: (String, String) = sqlx::query_as(
+        "SELECT track_id, content_fingerprint FROM media_assets WHERE user_id = ? AND media_asset_id = ?",
+    )
+    .bind(user.as_uuid().to_string())
+    .bind(asset.as_uuid().to_string())
+    .fetch_one(database.pool())
+    .await
+    .expect("asset projection");
+    assert_eq!(asset_projection.0, second.track_id.as_uuid().to_string());
+    assert_eq!(asset_projection.1, "fingerprint-replacement");
+    let canonical_counts: (i64, i64, i64) = sqlx::query_as(
+        "SELECT (SELECT COUNT(*) FROM recordings WHERE user_id = ?), (SELECT COUNT(*) FROM tracks WHERE user_id = ?), (SELECT COUNT(*) FROM listening_events WHERE user_id = ? AND track_id = ?)",
+    )
+    .bind(user.as_uuid().to_string())
+    .bind(user.as_uuid().to_string())
+    .bind(user.as_uuid().to_string())
+    .bind(first.track_id.as_uuid().to_string())
+    .fetch_one(database.pool())
+    .await
+    .expect("preserved canonical rows and history");
+    assert_eq!(canonical_counts, (2, 2, 1));
+    let old_playable: i64 =
+        sqlx::query_scalar("SELECT playable FROM tracks WHERE user_id = ? AND track_id = ?")
+            .bind(user.as_uuid().to_string())
+            .bind(first.track_id.as_uuid().to_string())
+            .fetch_one(database.pool())
+            .await
+            .expect("historical track state");
+    assert_eq!(old_playable, 0, "superseded track has no playable asset");
+    let refreshed: (String, i64, String) = sqlx::query_as(
+        "SELECT releases.title, tracks.track_number, local_import_metadata.raw_tags_json FROM tracks JOIN releases ON releases.user_id = tracks.user_id AND releases.release_id = tracks.release_id JOIN media_assets ON media_assets.user_id = tracks.user_id AND media_assets.track_id = tracks.track_id JOIN local_import_metadata ON local_import_metadata.user_id = media_assets.user_id AND local_import_metadata.media_asset_id = media_assets.media_asset_id WHERE tracks.user_id = ? AND tracks.track_id = ?",
+    )
+    .bind(user.as_uuid().to_string())
+    .bind(second.track_id.as_uuid().to_string())
+    .fetch_one(database.pool())
+    .await
+    .expect("refreshed projection");
+    assert_eq!(refreshed.0, "Replacement Album");
+    assert_eq!(refreshed.1, 9);
+    let raw: ParsedTags = serde_json::from_str(&refreshed.2).expect("raw replacement tags");
+    assert_eq!(raw.album.as_deref(), Some("Replacement Album"));
+    let possible_match: (String, String) = sqlx::query_as(
+        "SELECT recording_id, candidate_recording_id FROM recording_possible_matches WHERE user_id = ?",
+    )
+    .bind(user.as_uuid().to_string())
+    .fetch_one(database.pool())
+    .await
+    .expect("replacement possible match");
+    assert_eq!(possible_match.0, second.recording_id.as_uuid().to_string());
+    assert_eq!(possible_match.1, first.recording_id.as_uuid().to_string());
+}

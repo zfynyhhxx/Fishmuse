@@ -46,13 +46,14 @@ impl LocalLibraryImporter {
         let normalized_artists =
             serde_json::to_string(&NormalizedArtists(canonical.search_artists.clone()))
                 .map_err(import_error)?;
+        let normalized_artist_key = canonical.search_artists.join("\u{1f}");
         let normalized_release = canonical.search_release.clone();
         let raw_tags_json = serde_json::to_string(&input.tags).map_err(import_error)?;
         let user = self.user_id.as_uuid().to_string();
         let mut transaction = self.pool.begin().await.map_err(import_error)?;
 
         let existing = sqlx::query(
-            "SELECT media_assets.media_asset_id, media_assets.track_id, tracks.recording_id FROM media_assets LEFT JOIN tracks ON tracks.user_id = media_assets.user_id AND tracks.track_id = media_assets.track_id WHERE media_assets.user_id = ? AND (media_assets.normalized_path = ? OR media_assets.media_asset_id = ?) ORDER BY CASE WHEN media_assets.normalized_path = ? THEN 0 ELSE 1 END LIMIT 1",
+            "SELECT media_assets.media_asset_id, media_assets.track_id, media_assets.content_fingerprint, tracks.recording_id FROM media_assets LEFT JOIN tracks ON tracks.user_id = media_assets.user_id AND tracks.track_id = media_assets.track_id WHERE media_assets.user_id = ? AND (media_assets.normalized_path = ? OR media_assets.media_asset_id = ?) ORDER BY CASE WHEN media_assets.normalized_path = ? THEN 0 ELSE 1 END LIMIT 1",
         )
         .bind(&user)
         .bind(&input.normalized_path)
@@ -63,6 +64,7 @@ impl LocalLibraryImporter {
         .map_err(import_error)?;
 
         let mut unprojected_asset_id = None;
+        let mut superseded_track_id = None;
         if let Some(row) = existing {
             let asset_id =
                 parse_media_asset_id(row.try_get("media_asset_id").map_err(import_error)?)?;
@@ -76,7 +78,14 @@ impl LocalLibraryImporter {
                 .map_err(import_error)?
                 .map(|value| parse_recording_id(&value))
                 .transpose()?;
-            if let (Some(track_id), Some(recording_id)) = (track_id, recording_id) {
+            let stored_fingerprint = row
+                .try_get::<Option<String>, _>("content_fingerprint")
+                .map_err(import_error)?;
+            let confirmed_same_asset =
+                stored_fingerprint.as_deref() == Some(input.content_fingerprint.as_str());
+            if confirmed_same_asset
+                && let (Some(track_id), Some(recording_id)) = (track_id, recording_id)
+            {
                 update_asset_and_metadata(
                     &mut transaction,
                     &user,
@@ -98,6 +107,7 @@ impl LocalLibraryImporter {
                     possible_match,
                 });
             }
+            superseded_track_id = track_id;
             unprojected_asset_id = Some(asset_id);
         }
 
@@ -239,6 +249,14 @@ impl LocalLibraryImporter {
                 .await
                 .map_err(import_error)?;
         }
+        if let Some(superseded_track_id) = superseded_track_id {
+            sqlx::query("UPDATE tracks SET playable = CASE WHEN EXISTS (SELECT 1 FROM media_assets WHERE media_assets.user_id = tracks.user_id AND media_assets.track_id = tracks.track_id AND media_assets.availability = 'available') THEN 1 ELSE 0 END WHERE user_id = ? AND track_id = ?")
+                .bind(&user)
+                .bind(superseded_track_id.as_uuid().to_string())
+                .execute(&mut *transaction)
+                .await
+                .map_err(import_error)?;
+        }
         insert_metadata(
             &mut transaction,
             &user,
@@ -251,13 +269,13 @@ impl LocalLibraryImporter {
         .await?;
 
         let candidate = sqlx::query_scalar::<_, String>(
-            "SELECT recordings.recording_id FROM recordings JOIN tracks ON tracks.user_id = recordings.user_id AND tracks.recording_id = recordings.recording_id JOIN media_assets ON media_assets.user_id = tracks.user_id AND media_assets.track_id = tracks.track_id JOIN local_import_metadata ON local_import_metadata.user_id = media_assets.user_id AND local_import_metadata.media_asset_id = media_assets.media_asset_id WHERE recordings.user_id = ? AND recordings.recording_id <> ? AND recordings.normalized_title = ? AND recordings.duration_ms IS ? AND local_import_metadata.normalized_artists_json = ? ORDER BY recordings.recording_id LIMIT 1",
+            "SELECT recordings.recording_id FROM recordings JOIN tracks ON tracks.user_id = recordings.user_id AND tracks.recording_id = recordings.recording_id WHERE recordings.user_id = ? AND recordings.recording_id <> ? AND recordings.normalized_title = ? AND recordings.duration_ms IS ? AND COALESCE((SELECT group_concat(normalized_name, char(31)) FROM (SELECT artists.normalized_name FROM track_artists JOIN artists ON artists.user_id = track_artists.user_id AND artists.artist_id = track_artists.artist_id WHERE track_artists.user_id = tracks.user_id AND track_artists.track_id = tracks.track_id ORDER BY track_artists.position, artists.normalized_name)), '') = ? ORDER BY recordings.recording_id LIMIT 1",
         )
         .bind(&user)
         .bind(recording_id.as_uuid().to_string())
         .bind(&normalized_title)
         .bind(duration_ms)
-        .bind(&normalized_artists)
+        .bind(&normalized_artist_key)
         .fetch_optional(&mut *transaction)
         .await
         .map_err(import_error)?;

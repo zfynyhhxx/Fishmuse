@@ -203,22 +203,23 @@ CREATE VIRTUAL TABLE library_fts USING fts5(
     user_id UNINDEXED,
     track_id UNINDEXED,
     title,
+    normalized_title UNINDEXED,
     artist,
     release_title,
     tokenize = 'unicode61'
 );
 
 CREATE TRIGGER tracks_library_fts_insert AFTER INSERT ON tracks BEGIN
-    INSERT INTO library_fts(user_id, track_id, title, artist, release_title)
-    SELECT new.user_id, new.track_id, new.title, '', COALESCE(releases.title, '')
+    INSERT INTO library_fts(user_id, track_id, title, normalized_title, artist, release_title)
+    SELECT new.user_id, new.track_id, new.title, COALESCE(NULLIF(new.normalized_title, ''), lower(trim(new.title))), '', COALESCE(releases.title, '')
     FROM (SELECT 1)
     LEFT JOIN releases ON releases.user_id = new.user_id AND releases.release_id = new.release_id;
 END;
 
-CREATE TRIGGER tracks_library_fts_update AFTER UPDATE OF user_id, title, release_id ON tracks BEGIN
+CREATE TRIGGER tracks_library_fts_update AFTER UPDATE OF user_id, title, normalized_title, release_id ON tracks BEGIN
     DELETE FROM library_fts WHERE user_id = old.user_id AND track_id = old.track_id;
-    INSERT INTO library_fts(user_id, track_id, title, artist, release_title)
-    SELECT new.user_id, new.track_id, new.title,
+    INSERT INTO library_fts(user_id, track_id, title, normalized_title, artist, release_title)
+    SELECT new.user_id, new.track_id, new.title, COALESCE(NULLIF(new.normalized_title, ''), lower(trim(new.title))),
            COALESCE((SELECT group_concat(artists.name, ' ') FROM track_artists JOIN artists ON artists.user_id = track_artists.user_id AND artists.artist_id = track_artists.artist_id WHERE track_artists.user_id = new.user_id AND track_artists.track_id = new.track_id ORDER BY track_artists.position), ''),
            COALESCE(releases.title, '')
     FROM (SELECT 1)
@@ -239,6 +240,15 @@ CREATE TRIGGER track_artists_library_fts_delete AFTER DELETE ON track_artists BE
     UPDATE library_fts
     SET artist = COALESCE((SELECT group_concat(artists.name, ' ') FROM track_artists JOIN artists ON artists.user_id = track_artists.user_id AND artists.artist_id = track_artists.artist_id WHERE track_artists.user_id = old.user_id AND track_artists.track_id = old.track_id ORDER BY track_artists.position), '')
     WHERE user_id = old.user_id AND track_id = old.track_id;
+END;
+
+CREATE TRIGGER track_artists_library_fts_update AFTER UPDATE OF user_id, track_id, artist_id, position ON track_artists BEGIN
+    UPDATE library_fts
+    SET artist = COALESCE((SELECT group_concat(artists.name, ' ') FROM track_artists JOIN artists ON artists.user_id = track_artists.user_id AND artists.artist_id = track_artists.artist_id WHERE track_artists.user_id = old.user_id AND track_artists.track_id = old.track_id ORDER BY track_artists.position), '')
+    WHERE user_id = old.user_id AND track_id = old.track_id;
+    UPDATE library_fts
+    SET artist = COALESCE((SELECT group_concat(artists.name, ' ') FROM track_artists JOIN artists ON artists.user_id = track_artists.user_id AND artists.artist_id = track_artists.artist_id WHERE track_artists.user_id = new.user_id AND track_artists.track_id = new.track_id ORDER BY track_artists.position), '')
+    WHERE user_id = new.user_id AND track_id = new.track_id;
 END;
 
 CREATE TRIGGER artists_library_fts_update AFTER UPDATE OF name ON artists BEGIN
