@@ -1,7 +1,8 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{HashMap, HashSet, VecDeque},
+    io,
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{Arc, Mutex},
     time::Duration,
 };
 
@@ -15,12 +16,17 @@ use fishmuse_storage::{
 use futures::{StreamExt, stream};
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
-use tokio::sync::{Semaphore, mpsc::Sender};
+use tokio::sync::{
+    Semaphore,
+    mpsc::{self, Sender, UnboundedReceiver, error::TrySendError},
+};
+use tokio::{task::JoinHandle, time::Interval};
 use tokio_util::sync::CancellationToken;
 
+use crate::file_identity::{canonicalize_roots, visit_files_from_canonical_roots};
 use crate::{
-    DiagnosticCode, ExtensionDisposition, FileIdentity, QuickFileIdentity, TagReader,
-    classify_extension, discover_files, normalize_path_bytes,
+    DiagnosticCode, ExtensionDisposition, FileIdentity, TagReader, classify_extension,
+    normalize_path_bytes,
 };
 
 const DEFAULT_BATCH_SIZE: usize = 32;
@@ -120,64 +126,115 @@ impl<R: TagReader> LibraryScanner<R> {
                 "relative media root rejected",
             ));
         }
-        for root in &request.roots {
+        let mut state = ScanState::new(scan_id);
+        let mut publisher = ProgressPublisher::new(progress, 0);
+        let mut progress_interval = tokio::time::interval(PROGRESS_TIME_THRESHOLD);
+        progress_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        progress_interval.tick().await;
+        let requested_roots = request.roots;
+        let mut canonicalization =
+            tokio::task::spawn_blocking(move || canonicalize_roots(&requested_roots));
+        let roots = loop {
+            tokio::select! {
+                () = cancellation.cancelled() => {
+                    repository.finish_scan(scan_id, ScanRunStatus::Cancelled).await?;
+                    publisher.publish_terminal(state.progress()).await;
+                    return Ok(state.summary(ScanStatus::Cancelled));
+                }
+                _ = progress_interval.tick() => publisher.publish_latest(state.progress()),
+                result = &mut canonicalization => match result {
+                    Ok(Ok(roots)) => break roots,
+                    Ok(Err(error)) => {
+                        repository.finish_scan(scan_id, ScanRunStatus::Failed).await?;
+                        return Err(library_error(
+                            "A media folder could not be read.",
+                            "Check that the folder exists and that FishMuse has permission to read it.",
+                            error,
+                        ));
+                    }
+                    Err(error) => {
+                        repository.finish_scan(scan_id, ScanRunStatus::Failed).await?;
+                        return Err(library_error(
+                            "The media scan could not start.",
+                            "Try the scan again.",
+                            error,
+                        ));
+                    }
+                }
+            }
+        };
+        for root in &roots {
             repository
                 .upsert_root(&normalize_path_bytes(root), &native_path_bytes(root))
                 .await?;
         }
-        let normalized_roots: Vec<Vec<u8>> = request
-            .roots
+        let normalized_roots: Vec<Vec<u8>> = roots
             .iter()
             .map(|root| normalize_path_bytes(root))
             .collect();
 
-        let roots = request.roots;
-        let discovery = tokio::task::spawn_blocking(move || discover_files(&roots));
-        let discovered_paths = tokio::select! {
-            () = cancellation.cancelled() => {
-                repository.finish_scan(scan_id, ScanRunStatus::Cancelled).await?;
-                return Ok(empty_summary(scan_id, ScanStatus::Cancelled));
-            }
-            result = discovery => match result {
-                Ok(Ok(paths)) => paths,
-                Ok(Err(error)) => {
-                    repository.finish_scan(scan_id, ScanRunStatus::Failed).await?;
-                    return Err(library_error(
-                        "A media folder could not be read.",
-                        "Check that the folder exists and that FishMuse has permission to read it.",
-                        error,
-                    ));
-                }
-                Err(error) => {
-                    repository.finish_scan(scan_id, ScanRunStatus::Failed).await?;
-                    return Err(library_error(
-                        "The media scan could not start.",
-                        "Try the scan again.",
-                        error,
-                    ));
-                }
-            }
-        };
-
+        let (discovery_tx, discovery_rx) = mpsc::unbounded_channel();
+        let discovery = tokio::task::spawn_blocking(move || {
+            visit_files_from_canonical_roots(&roots, |path| {
+                discovery_tx.send(path).map_err(|_| {
+                    io::Error::new(io::ErrorKind::Interrupted, "media discovery cancelled")
+                })
+            })
+        });
         let mut candidate_paths = Vec::new();
         let mut diagnostics = Vec::new();
-        let mut state = ScanState::new(scan_id);
-        for path in discovered_paths {
-            match classify_extension(&path) {
-                ExtensionDisposition::Supported => {
-                    state.discovered += 1;
-                    candidate_paths.push(path);
-                }
-                ExtensionDisposition::Diagnostic(code) => {
-                    state.discovered += 1;
-                    state.failed += 1;
-                    diagnostics.push(diagnostic(&path, code, code.as_str()));
-                }
-                ExtensionDisposition::Ignored => {}
+        match receive_discovery(
+            discovery_rx,
+            discovery,
+            &cancellation,
+            &mut progress_interval,
+            &mut publisher,
+            &mut state,
+            &mut candidate_paths,
+            &mut diagnostics,
+        )
+        .await
+        {
+            DiscoveryOutcome::Completed => {}
+            DiscoveryOutcome::Cancelled => {
+                repository
+                    .finish_scan(scan_id, ScanRunStatus::Cancelled)
+                    .await?;
+                publisher.publish_terminal(state.progress()).await;
+                return Ok(state.summary(ScanStatus::Cancelled));
+            }
+            DiscoveryOutcome::IoError(error) => {
+                repository
+                    .finish_scan(scan_id, ScanRunStatus::Failed)
+                    .await?;
+                return Err(library_error(
+                    "A media folder could not be read.",
+                    "Check that the folder exists and that FishMuse has permission to read it.",
+                    error,
+                ));
+            }
+            DiscoveryOutcome::TaskError(error) => {
+                repository
+                    .finish_scan(scan_id, ScanRunStatus::Failed)
+                    .await?;
+                return Err(library_error(
+                    "The media scan could not start.",
+                    "Try the scan again.",
+                    error,
+                ));
             }
         }
+        candidate_paths.sort_by_cached_key(|path| normalize_path_bytes(path));
 
-        let existing = ExistingAssets::new(repository.list_assets().await?);
+        let discovered_normalized_paths: HashSet<Vec<u8>> = candidate_paths
+            .iter()
+            .map(|path| normalize_path_bytes(path))
+            .collect();
+        let existing = ExistingAssets::new(
+            repository.list_assets().await?,
+            &discovered_normalized_paths,
+            &normalized_roots,
+        );
         let semaphore = Arc::new(Semaphore::new(self.concurrency_limit));
         let tag_reader = self.tag_reader.clone();
         let mut work = stream::iter(candidate_paths.into_iter().map(|path| {
@@ -196,10 +253,6 @@ impl<R: TagReader> LibraryScanner<R> {
 
         let mut assets = Vec::new();
         let mut seen_asset_ids = HashSet::new();
-        let mut completed_since_progress = state.failed;
-        let mut progress_interval = tokio::time::interval(PROGRESS_TIME_THRESHOLD);
-        progress_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-        progress_interval.tick().await;
         let mut cancelled = false;
         loop {
             let next = tokio::select! {
@@ -208,8 +261,7 @@ impl<R: TagReader> LibraryScanner<R> {
                     None
                 }
                 _ = progress_interval.tick() => {
-                    let _ = progress.try_send(state.progress());
-                    completed_since_progress = 0;
+                    publisher.publish_latest(state.progress());
                     continue;
                 }
                 next = work.next() => next,
@@ -244,13 +296,9 @@ impl<R: TagReader> LibraryScanner<R> {
                     diagnostics.push(failure);
                 }
             }
-            completed_since_progress += 1;
+            publisher.record_completed(state.progress());
             if assets.len() + diagnostics.len() >= self.batch_size {
                 commit_pending(&repository, scan_id, &mut assets, &mut diagnostics).await?;
-            }
-            if completed_since_progress >= PROGRESS_ITEM_THRESHOLD {
-                let _ = progress.try_send(state.progress());
-                completed_since_progress = 0;
             }
         }
 
@@ -278,8 +326,106 @@ impl<R: TagReader> LibraryScanner<R> {
                 .await?;
             ScanStatus::Completed
         };
-        let _ = progress.try_send(state.progress());
+        publisher.publish_terminal(state.progress()).await;
         Ok(state.summary(status))
+    }
+}
+
+enum DiscoveryOutcome {
+    Completed,
+    Cancelled,
+    IoError(io::Error),
+    TaskError(tokio::task::JoinError),
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn receive_discovery(
+    mut paths: UnboundedReceiver<PathBuf>,
+    mut discovery: JoinHandle<io::Result<()>>,
+    cancellation: &CancellationToken,
+    progress_interval: &mut Interval,
+    publisher: &mut ProgressPublisher,
+    state: &mut ScanState,
+    candidate_paths: &mut Vec<PathBuf>,
+    diagnostics: &mut Vec<ScanDiagnosticWrite>,
+) -> DiscoveryOutcome {
+    let mut discovery_finished = false;
+    let mut paths_closed = false;
+    loop {
+        if discovery_finished && paths_closed {
+            return DiscoveryOutcome::Completed;
+        }
+        tokio::select! {
+            () = cancellation.cancelled() => return DiscoveryOutcome::Cancelled,
+            _ = progress_interval.tick() => publisher.publish_latest(state.progress()),
+            path = paths.recv(), if !paths_closed => match path {
+                Some(path) => match classify_extension(&path) {
+                    ExtensionDisposition::Supported => {
+                        state.discovered += 1;
+                        candidate_paths.push(path);
+                    }
+                    ExtensionDisposition::Diagnostic(code) => {
+                        state.discovered += 1;
+                        state.failed += 1;
+                        diagnostics.push(diagnostic(&path, code, code.as_str()));
+                        publisher.record_completed(state.progress());
+                    }
+                    ExtensionDisposition::Ignored => {}
+                },
+                None => paths_closed = true,
+            },
+            result = &mut discovery, if !discovery_finished => {
+                discovery_finished = true;
+                match result {
+                    Ok(Ok(())) => {}
+                    Ok(Err(error)) => return DiscoveryOutcome::IoError(error),
+                    Err(error) => return DiscoveryOutcome::TaskError(error),
+                }
+            }
+        }
+    }
+}
+
+struct ProgressPublisher {
+    sender: Sender<ScanProgress>,
+    completed_since_delivery: u64,
+    pending: Option<ScanProgress>,
+}
+
+impl ProgressPublisher {
+    const fn new(sender: Sender<ScanProgress>, completed_since_delivery: u64) -> Self {
+        Self {
+            sender,
+            completed_since_delivery,
+            pending: None,
+        }
+    }
+
+    fn record_completed(&mut self, progress: ScanProgress) {
+        self.completed_since_delivery += 1;
+        if self.completed_since_delivery >= PROGRESS_ITEM_THRESHOLD {
+            self.publish_latest(progress);
+        }
+    }
+
+    fn publish_latest(&mut self, progress: ScanProgress) {
+        self.pending = Some(progress);
+        self.try_flush();
+    }
+
+    fn try_flush(&mut self) {
+        let Some(progress) = self.pending.take() else {
+            return;
+        };
+        match self.sender.try_send(progress) {
+            Ok(()) => self.completed_since_delivery = 0,
+            Err(TrySendError::Full(progress)) => self.pending = Some(progress),
+            Err(TrySendError::Closed(_)) => self.completed_since_delivery = 0,
+        }
+    }
+
+    async fn publish_terminal(self, progress: ScanProgress) {
+        let _ = self.sender.send(progress).await;
     }
 }
 
@@ -293,14 +439,18 @@ struct ExistingAsset {
 #[derive(Clone, Default)]
 struct ExistingAssets {
     by_path: Arc<HashMap<Vec<u8>, ExistingAsset>>,
-    by_full: Arc<HashMap<String, ExistingAsset>>,
+    move_candidates_by_full: Arc<Mutex<HashMap<String, VecDeque<ExistingAsset>>>>,
     all: Arc<Vec<StoredMediaAsset>>,
 }
 
 impl ExistingAssets {
-    fn new(assets: Vec<StoredMediaAsset>) -> Self {
+    fn new(
+        assets: Vec<StoredMediaAsset>,
+        discovered_paths: &HashSet<Vec<u8>>,
+        normalized_roots: &[Vec<u8>],
+    ) -> Self {
         let mut by_path = HashMap::new();
-        let mut by_full = HashMap::new();
+        let mut move_candidates_by_full: HashMap<String, VecDeque<ExistingAsset>> = HashMap::new();
         for stored in &assets {
             let parsed = stored.identity.as_deref().and_then(parse_identity);
             let asset = ExistingAsset {
@@ -308,16 +458,31 @@ impl ExistingAssets {
                 quick: parsed.map(|(quick, _)| quick.to_owned()),
                 full: parsed.map(|(_, full)| full.to_owned()),
             };
-            if let Some(full) = &asset.full {
-                by_full.entry(full.clone()).or_insert_with(|| asset.clone());
+            let is_disappeared_in_scanned_root = normalized_roots
+                .iter()
+                .any(|root| normalized_path_is_within_root(&asset.stored.normalized_path, root))
+                && !discovered_paths.contains(&asset.stored.normalized_path);
+            if is_disappeared_in_scanned_root && let Some(full) = &asset.full {
+                move_candidates_by_full
+                    .entry(full.clone())
+                    .or_default()
+                    .push_back(asset.clone());
             }
             by_path.insert(asset.stored.normalized_path.clone(), asset);
         }
         Self {
             by_path: Arc::new(by_path),
-            by_full: Arc::new(by_full),
+            move_candidates_by_full: Arc::new(Mutex::new(move_candidates_by_full)),
             all: Arc::new(assets),
         }
+    }
+
+    fn take_move_candidate(&self, full_fingerprint: &str) -> Option<ExistingAsset> {
+        self.move_candidates_by_full
+            .lock()
+            .expect("move candidates lock")
+            .get_mut(full_fingerprint)
+            .and_then(VecDeque::pop_front)
     }
 }
 
@@ -341,53 +506,6 @@ async fn process_file<R: TagReader>(
     let normalized_path = normalize_path_bytes(&path);
     let same_path = existing.by_path.get(&normalized_path);
     let existing_media_asset_id = same_path.map(|asset| asset.stored.media_asset_id);
-    let quick_path = path.clone();
-    let quick =
-        match tokio::task::spawn_blocking(move || QuickFileIdentity::read(&quick_path)).await {
-            Ok(Ok(identity)) => identity,
-            Ok(Err(error)) => {
-                return failed_file(
-                    diagnostic_with_context(
-                        &path,
-                        DiagnosticCode::Unreadable,
-                        "media file metadata could not be read",
-                        error,
-                    ),
-                    existing_media_asset_id,
-                );
-            }
-            Err(error) => {
-                return failed_file(
-                    diagnostic_with_context(
-                        &path,
-                        DiagnosticCode::Unreadable,
-                        "media identity task failed",
-                        error,
-                    ),
-                    existing_media_asset_id,
-                );
-            }
-        };
-    if let Some(asset) =
-        same_path.filter(|asset| asset.quick.as_deref() == Some(quick.quick_fingerprint.as_str()))
-    {
-        let write = (asset.stored.availability != "available").then(|| {
-            asset_write_parts(
-                asset.stored.media_asset_id,
-                &path,
-                &quick.quick_fingerprint,
-                asset
-                    .full
-                    .as_deref()
-                    .expect("a parsed quick identity always has a full identity"),
-            )
-        });
-        return ProcessedFile::Unchanged {
-            media_asset_id: asset.stored.media_asset_id,
-            write,
-        };
-    }
-
     let full_path = path.clone();
     let identity = match tokio::task::spawn_blocking(move || FileIdentity::read(&full_path)).await {
         Ok(Ok(identity)) => identity,
@@ -414,8 +532,19 @@ async fn process_file<R: TagReader>(
             );
         }
     };
+    if let Some(asset) = same_path
+        .filter(|asset| asset.full.as_deref() == Some(identity.content_fingerprint.as_str()))
+    {
+        let write = (asset.stored.availability != "available"
+            || asset.quick.as_deref() != Some(identity.quick_fingerprint.as_str()))
+        .then(|| asset_write(asset.stored.media_asset_id, &path, &identity));
+        return ProcessedFile::Unchanged {
+            media_asset_id: asset.stored.media_asset_id,
+            write,
+        };
+    }
     if same_path.is_none()
-        && let Some(moved) = existing.by_full.get(&identity.content_fingerprint)
+        && let Some(moved) = existing.take_move_candidate(&identity.content_fingerprint)
     {
         return ProcessedFile::Unchanged {
             media_asset_id: moved.stored.media_asset_id,
@@ -556,17 +685,6 @@ impl ScanState {
     }
 }
 
-const fn empty_summary(scan_id: ScanId, status: ScanStatus) -> ScanSummary {
-    ScanSummary {
-        scan_id,
-        status,
-        discovered: 0,
-        parsed: 0,
-        unchanged: 0,
-        failed: 0,
-    }
-}
-
 fn diagnostic(path: &Path, code: DiagnosticCode, message: &str) -> ScanDiagnosticWrite {
     ScanDiagnosticWrite {
         path: Some(native_path_bytes(path)),
@@ -618,5 +736,94 @@ fn library_error(
         retryable: true,
         suggested_action: Some(suggested_action.to_owned()),
         technical_context: Some(technical_context.to_string()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn progress_is_published_when_discovery_exceeds_250_ms() {
+        let scan_id = ScanId::new();
+        let (progress_tx, mut progress_rx) = mpsc::channel(4);
+        let (path_tx, path_rx) = mpsc::unbounded_channel();
+        let discovery = tokio::task::spawn_blocking(move || {
+            path_tx
+                .send(PathBuf::from("slow.flac"))
+                .map_err(|_| io::Error::new(io::ErrorKind::BrokenPipe, "receiver closed"))?;
+            std::thread::sleep(Duration::from_millis(600));
+            Ok(())
+        });
+        let task = tokio::spawn(async move {
+            let cancellation = CancellationToken::new();
+            let mut interval = tokio::time::interval(PROGRESS_TIME_THRESHOLD);
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            interval.tick().await;
+            let mut publisher = ProgressPublisher::new(progress_tx, 0);
+            let mut state = ScanState::new(scan_id);
+            let mut candidates = Vec::new();
+            let mut diagnostics = Vec::new();
+            let outcome = receive_discovery(
+                path_rx,
+                discovery,
+                &cancellation,
+                &mut interval,
+                &mut publisher,
+                &mut state,
+                &mut candidates,
+                &mut diagnostics,
+            )
+            .await;
+            (outcome, state, candidates)
+        });
+
+        let interim = tokio::time::timeout(Duration::from_millis(450), progress_rx.recv())
+            .await
+            .expect("progress during discovery")
+            .expect("progress sender open");
+        assert_eq!(interim.discovered, 1);
+        assert!(!task.is_finished(), "discovery must still be running");
+        let (outcome, state, candidates) = task.await.expect("discovery task");
+        assert!(matches!(outcome, DiscoveryOutcome::Completed));
+        assert_eq!(state.discovered, 1);
+        assert_eq!(candidates, vec![PathBuf::from("slow.flac")]);
+    }
+
+    #[tokio::test]
+    async fn full_progress_channel_keeps_item_threshold_pending_until_delivery() {
+        let scan_id = ScanId::new();
+        let (sender, mut receiver) = mpsc::channel(1);
+        sender
+            .try_send(ScanProgress {
+                scan_id,
+                discovered: 0,
+                parsed: 99,
+                unchanged: 0,
+                failed: 0,
+            })
+            .expect("prefill progress channel");
+        let mut publisher = ProgressPublisher::new(sender, PROGRESS_ITEM_THRESHOLD - 1);
+        let at_threshold = ScanProgress {
+            scan_id,
+            discovered: 100,
+            parsed: 100,
+            unchanged: 0,
+            failed: 0,
+        };
+        publisher.record_completed(at_threshold);
+        assert_eq!(publisher.completed_since_delivery, PROGRESS_ITEM_THRESHOLD);
+        assert!(publisher.pending.is_some());
+
+        receiver.recv().await.expect("remove prefilled event");
+        publisher.record_completed(ScanProgress {
+            discovered: 101,
+            parsed: 101,
+            ..at_threshold
+        });
+        let delivered = receiver.recv().await.expect("pending threshold progress");
+        assert_eq!(delivered.parsed, 101);
+        assert_eq!(publisher.completed_since_delivery, 0);
+        assert!(publisher.pending.is_none());
     }
 }

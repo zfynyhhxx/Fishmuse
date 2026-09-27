@@ -1,6 +1,7 @@
 use std::{
     collections::HashSet,
     fs,
+    io::{Seek, SeekFrom, Write},
     path::{Path, PathBuf},
     sync::{
         Arc, Mutex,
@@ -11,9 +12,10 @@ use std::{
 
 use async_trait::async_trait;
 use filetime::FileTime;
-use fishmuse_domain::ErrorCategory;
+use fishmuse_domain::{ErrorCategory, ScanId};
 use fishmuse_library::{
-    DiagnosticCode, LibraryScanner, ParsedTags, ScanFailure, ScanRequest, ScanStatus, TagReader,
+    DiagnosticCode, LibraryScanner, ParsedTags, QuickFileIdentity, ScanFailure, ScanProgress,
+    ScanRequest, ScanStatus, TagReader,
 };
 use fishmuse_storage::Database;
 use tempfile::tempdir;
@@ -215,6 +217,77 @@ async fn unchanged_rescan_does_not_parse_tags_again() {
 }
 
 #[tokio::test]
+async fn middle_only_change_with_same_size_mtime_and_stable_identity_is_reparsed() {
+    let (database, user_id) = setup().await;
+    let directory = tempdir().expect("temporary directory");
+    let path = directory.path().join("large.flac");
+    let mut contents = vec![b'a'; 256 * 1024];
+    contents[128 * 1024..128 * 1024 + 8].copy_from_slice(b"before!!");
+    fixture(&path, &contents);
+    let fixed_time = FileTime::from_unix_time(1_800_000_000, 0);
+    filetime::set_file_mtime(&path, fixed_time).expect("fixed mtime");
+    let reader = FakeTagReader::successful();
+    let scanner = LibraryScanner::new(database.pool().clone(), reader.clone());
+
+    let (progress, _receiver) = progress_channel();
+    scanner
+        .scan(
+            ScanRequest {
+                user_id,
+                roots: vec![directory.path().to_path_buf()],
+            },
+            CancellationToken::new(),
+            progress,
+        )
+        .await
+        .expect("first scan");
+    let fingerprint_before: String =
+        sqlx::query_scalar("SELECT content_fingerprint FROM media_assets WHERE user_id = ?")
+            .bind(user_id.as_uuid().to_string())
+            .fetch_one(database.pool())
+            .await
+            .expect("first fingerprint");
+    let quick_before = QuickFileIdentity::read(&path).expect("quick identity before");
+
+    let mut file = fs::OpenOptions::new()
+        .write(true)
+        .open(&path)
+        .expect("open fixture for middle mutation");
+    file.seek(SeekFrom::Start(128 * 1024))
+        .expect("seek to middle");
+    file.write_all(b"after!!!").expect("mutate middle");
+    file.sync_all().expect("flush mutation");
+    filetime::set_file_mtime(&path, fixed_time).expect("restore mtime");
+    let quick_after = QuickFileIdentity::read(&path).expect("quick identity after");
+    assert_eq!(
+        quick_before.quick_fingerprint,
+        quick_after.quick_fingerprint
+    );
+
+    let (progress, _receiver) = progress_channel();
+    scanner
+        .scan(
+            ScanRequest {
+                user_id,
+                roots: vec![directory.path().to_path_buf()],
+            },
+            CancellationToken::new(),
+            progress,
+        )
+        .await
+        .expect("second scan");
+
+    let fingerprint_after: String =
+        sqlx::query_scalar("SELECT content_fingerprint FROM media_assets WHERE user_id = ?")
+            .bind(user_id.as_uuid().to_string())
+            .fetch_one(database.pool())
+            .await
+            .expect("second fingerprint");
+    assert_ne!(fingerprint_before, fingerprint_after);
+    assert_eq!(reader.call_count(), 2);
+}
+
+#[tokio::test]
 async fn uncertain_existing_identity_is_reparsed_and_updated_in_place() {
     let (database, user_id) = setup().await;
     let directory = tempdir().expect("temporary directory");
@@ -308,6 +381,59 @@ async fn moved_identical_file_updates_one_asset_after_full_hash_confirmation() {
 }
 
 #[tokio::test]
+async fn identical_copy_beside_original_creates_a_distinct_media_asset() {
+    let (database, user_id) = setup().await;
+    let directory = tempdir().expect("temporary directory");
+    let original = directory.path().join("original.flac");
+    let copy = directory.path().join("copy.flac");
+    fixture(&original, b"generated duplicate-content fixture");
+    let reader = FakeTagReader::successful();
+    let scanner = LibraryScanner::new(database.pool().clone(), reader.clone());
+
+    let (progress, _receiver) = progress_channel();
+    scanner
+        .scan(
+            ScanRequest {
+                user_id,
+                roots: vec![directory.path().to_path_buf()],
+            },
+            CancellationToken::new(),
+            progress,
+        )
+        .await
+        .expect("first scan");
+    fs::copy(&original, &copy).expect("copy fixture");
+
+    let (progress, _receiver) = progress_channel();
+    scanner
+        .scan(
+            ScanRequest {
+                user_id,
+                roots: vec![directory.path().to_path_buf()],
+            },
+            CancellationToken::new(),
+            progress,
+        )
+        .await
+        .expect("second scan");
+
+    let assets: Vec<(String, Vec<u8>)> = sqlx::query_as(
+        "SELECT media_asset_id, normalized_path FROM media_assets WHERE user_id = ? ORDER BY normalized_path",
+    )
+    .bind(user_id.as_uuid().to_string())
+    .fetch_all(database.pool())
+    .await
+    .expect("assets");
+    assert_eq!(assets.len(), 2);
+    assert_ne!(assets[0].0, assets[1].0);
+    assert_eq!(
+        reader.call_count(),
+        2,
+        "the new copy needs its own tag parse"
+    );
+}
+
+#[tokio::test]
 async fn completed_rescan_marks_a_disappeared_file_unavailable_without_deleting_it() {
     let (database, user_id) = setup().await;
     let directory = tempdir().expect("temporary directory");
@@ -347,6 +473,66 @@ async fn completed_rescan_marks_a_disappeared_file_unavailable_without_deleting_
             .fetch_one(database.pool())
             .await
             .expect("availability");
+    assert_eq!(availability, "missing");
+}
+
+#[tokio::test]
+async fn root_dot_dot_alias_is_canonicalized_before_persistence_and_missing_detection() {
+    let (database, user_id) = setup().await;
+    let directory = tempdir().expect("temporary directory");
+    fs::create_dir(directory.path().join("child")).expect("alias child directory");
+    let canonical_root = directory.path().to_path_buf();
+    let mut alias_spelling = canonical_root.as_os_str().to_os_string();
+    alias_spelling.push(r"\child\..");
+    let alias_root = PathBuf::from(alias_spelling);
+    assert_ne!(
+        fishmuse_library::normalize_path_bytes(&canonical_root),
+        fishmuse_library::normalize_path_bytes(&alias_root),
+        "fixture must exercise a non-canonical spelling"
+    );
+    let path = canonical_root.join("temporary.flac");
+    fixture(&path, b"generated alias fixture");
+    let scanner = LibraryScanner::new(database.pool().clone(), FakeTagReader::successful());
+
+    let (progress, _receiver) = progress_channel();
+    scanner
+        .scan(
+            ScanRequest {
+                user_id,
+                roots: vec![canonical_root],
+            },
+            CancellationToken::new(),
+            progress,
+        )
+        .await
+        .expect("canonical scan");
+    fs::remove_file(&path).expect("remove fixture");
+
+    let (progress, _receiver) = progress_channel();
+    scanner
+        .scan(
+            ScanRequest {
+                user_id,
+                roots: vec![alias_root],
+            },
+            CancellationToken::new(),
+            progress,
+        )
+        .await
+        .expect("alias rescan");
+
+    let root_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM media_roots WHERE user_id = ?")
+        .bind(user_id.as_uuid().to_string())
+        .fetch_one(database.pool())
+        .await
+        .expect("root count");
+    let availability: String =
+        sqlx::query_scalar("SELECT availability FROM media_assets WHERE user_id = ?")
+            .bind(user_id.as_uuid().to_string())
+            .fetch_one(database.pool())
+            .await
+            .expect("availability");
+    assert_eq!(root_count, 1);
     assert_eq!(availability, "missing");
 }
 
@@ -666,4 +852,54 @@ async fn progress_is_published_at_the_100_item_threshold_without_per_file_events
     assert_eq!(events.len(), 2, "one threshold event and one final event");
     assert!(events[0].parsed >= 100);
     assert_eq!(events[1].parsed, 101);
+}
+
+#[tokio::test]
+async fn terminal_progress_waits_for_capacity_and_is_guaranteed_to_an_open_receiver() {
+    let (database, user_id) = setup().await;
+    let directory = tempdir().expect("temporary directory");
+    fixture(&directory.path().join("one.flac"), b"generated fixture");
+    let scanner = LibraryScanner::new(database.pool().clone(), FakeTagReader::successful());
+    let (progress, mut receiver) = mpsc::channel(1);
+    progress
+        .try_send(ScanProgress {
+            scan_id: ScanId::new(),
+            discovered: 999,
+            parsed: 999,
+            unchanged: 0,
+            failed: 0,
+        })
+        .expect("prefill bounded channel");
+    let root = directory.path().to_path_buf();
+    let task = tokio::spawn(async move {
+        scanner
+            .scan(
+                ScanRequest {
+                    user_id,
+                    roots: vec![root],
+                },
+                CancellationToken::new(),
+                progress,
+            )
+            .await
+    });
+
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    assert!(
+        !task.is_finished(),
+        "an open but full receiver must apply backpressure to terminal delivery"
+    );
+    let prefilled = receiver.recv().await.expect("prefilled progress");
+    assert_eq!(prefilled.discovered, 999);
+    let terminal = tokio::time::timeout(Duration::from_secs(1), receiver.recv())
+        .await
+        .expect("terminal progress timeout")
+        .expect("terminal progress");
+    let summary = task.await.expect("scan task").expect("scan");
+
+    assert_eq!(terminal.scan_id, summary.scan_id);
+    assert_eq!(terminal.discovered, summary.discovered);
+    assert_eq!(terminal.parsed, summary.parsed);
+    assert_eq!(terminal.unchanged, summary.unchanged);
+    assert_eq!(terminal.failed, summary.failed);
 }

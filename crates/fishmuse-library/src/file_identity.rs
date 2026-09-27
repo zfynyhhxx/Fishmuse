@@ -198,11 +198,31 @@ pub fn normalize_path_bytes(path: &Path) -> Vec<u8> {
 }
 
 pub fn discover_files(roots: &[PathBuf]) -> io::Result<Vec<PathBuf>> {
+    let canonical_roots = canonicalize_roots(roots)?;
+    discover_files_from_canonical_roots(&canonical_roots)
+}
+
+pub(crate) fn canonicalize_roots(roots: &[PathBuf]) -> io::Result<Vec<PathBuf>> {
+    roots.iter().map(fs::canonicalize).collect()
+}
+
+pub(crate) fn discover_files_from_canonical_roots(roots: &[PathBuf]) -> io::Result<Vec<PathBuf>> {
     let mut files = Vec::new();
+    visit_files_from_canonical_roots(roots, |path| {
+        files.push(path);
+        Ok(())
+    })?;
+    files.sort_by_cached_key(|path| normalize_path_bytes(path));
+    Ok(files)
+}
+
+pub(crate) fn visit_files_from_canonical_roots<F>(roots: &[PathBuf], mut visit: F) -> io::Result<()>
+where
+    F: FnMut(PathBuf) -> io::Result<()>,
+{
     let mut visited = HashSet::new();
     for root in roots {
-        let root = fs::canonicalize(root)?;
-        let mut pending = VecDeque::from([root]);
+        let mut pending = VecDeque::from([root.clone()]);
         while let Some(directory) = pending.pop_front() {
             let canonical = fs::canonicalize(&directory)?;
             let normalized = normalize_path_bytes(&canonical);
@@ -219,13 +239,12 @@ pub fn discover_files(roots: &[PathBuf]) -> io::Result<Vec<PathBuf>> {
                 if metadata.is_dir() {
                     pending.push_back(path);
                 } else if metadata.is_file() {
-                    files.push(path);
+                    visit(path)?;
                 }
             }
         }
     }
-    files.sort_by_cached_key(|path| normalize_path_bytes(path));
-    Ok(files)
+    Ok(())
 }
 
 #[cfg(windows)]
