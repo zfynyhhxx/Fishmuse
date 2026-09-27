@@ -33,6 +33,8 @@ async fn empty_database_migrates_to_version_one_with_complete_schema() {
         "tracks",
         "track_artists",
         "media_assets",
+        "local_import_metadata",
+        "recording_possible_matches",
         "media_roots",
         "scan_runs",
         "scan_diagnostics",

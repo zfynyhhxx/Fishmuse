@@ -6,6 +6,7 @@ use fishmuse_domain::{
 use serde_json::Value;
 use sqlx::{Row, SqlitePool, sqlite::SqliteRow};
 use time::OffsetDateTime;
+use unicode_normalization::UnicodeNormalization;
 use uuid::Uuid;
 
 use crate::database::storage_error;
@@ -275,6 +276,72 @@ impl SqliteLibraryRepository {
         Self { pool, user_id }
     }
 
+    #[must_use]
+    pub const fn user_id(&self) -> UserId {
+        self.user_id
+    }
+
+    pub async fn search_tracks(
+        &self,
+        text: &str,
+        artist: Option<&str>,
+        release: Option<&str>,
+        limit: u32,
+    ) -> AppResult<Vec<TrackSummary>> {
+        let limit = effective_limit(limit);
+        let normalized_text = normalize_search_text(text);
+        let normalized_artist = artist.map(normalize_search_text);
+        let normalized_release = release.map(normalize_search_text);
+        let artist_pattern = normalized_artist.as_deref().map(like_contains_pattern);
+        let release_pattern = normalized_release.as_deref().map(like_contains_pattern);
+        let rows = if normalized_text.is_empty() {
+            sqlx::query(
+                "SELECT tracks.track_id, tracks.recording_id, tracks.release_id, tracks.title, tracks.duration_ms, tracks.disc_number, tracks.track_number, tracks.playable, releases.title AS release_title FROM tracks LEFT JOIN releases ON releases.release_id = tracks.release_id AND releases.user_id = tracks.user_id WHERE tracks.user_id = ? AND (? IS NULL OR EXISTS (SELECT 1 FROM track_artists JOIN artists ON artists.user_id = track_artists.user_id AND artists.artist_id = track_artists.artist_id WHERE track_artists.user_id = tracks.user_id AND track_artists.track_id = tracks.track_id AND artists.normalized_name LIKE ? ESCAPE '\\')) AND (? IS NULL OR releases.normalized_title LIKE ? ESCAPE '\\') ORDER BY tracks.imported_at DESC, tracks.track_id LIMIT ?",
+            )
+            .bind(self.user_text())
+            .bind(normalized_artist.as_deref())
+            .bind(artist_pattern.as_deref())
+            .bind(normalized_release.as_deref())
+            .bind(release_pattern.as_deref())
+            .bind(i64::from(limit))
+            .fetch_all(&self.pool)
+            .await
+            .map_err(db_error)?
+        } else {
+            let Some(match_expression) = fts_match_expression(&normalized_text) else {
+                return Ok(Vec::new());
+            };
+            let prefix_pattern = format!("{}%", escape_like(&normalized_text));
+            sqlx::query(
+                "SELECT tracks.track_id, tracks.recording_id, tracks.release_id, tracks.title, tracks.duration_ms, tracks.disc_number, tracks.track_number, tracks.playable, releases.title AS release_title FROM library_fts JOIN tracks ON tracks.user_id = library_fts.user_id AND tracks.track_id = library_fts.track_id LEFT JOIN releases ON releases.release_id = tracks.release_id AND releases.user_id = tracks.user_id WHERE library_fts MATCH ? AND library_fts.user_id = ? AND tracks.user_id = ? AND (? IS NULL OR EXISTS (SELECT 1 FROM track_artists JOIN artists ON artists.user_id = track_artists.user_id AND artists.artist_id = track_artists.artist_id WHERE track_artists.user_id = tracks.user_id AND track_artists.track_id = tracks.track_id AND artists.normalized_name LIKE ? ESCAPE '\\')) AND (? IS NULL OR releases.normalized_title LIKE ? ESCAPE '\\') ORDER BY CASE WHEN COALESCE(NULLIF(tracks.normalized_title, ''), lower(trim(tracks.title))) = ? THEN 1 ELSE 0 END DESC, CASE WHEN COALESCE(NULLIF(tracks.normalized_title, ''), lower(trim(tracks.title))) LIKE ? ESCAPE '\\' THEN 1 ELSE 0 END DESC, bm25(library_fts, 10.0, 5.0, 2.0), COALESCE((SELECT MIN(artists.name) FROM track_artists JOIN artists ON artists.user_id = track_artists.user_id AND artists.artist_id = track_artists.artist_id WHERE track_artists.user_id = tracks.user_id AND track_artists.track_id = tracks.track_id), '') COLLATE NOCASE, tracks.title COLLATE NOCASE, tracks.track_id LIMIT ?",
+            )
+            .bind(match_expression)
+            .bind(self.user_text())
+            .bind(self.user_text())
+            .bind(normalized_artist.as_deref())
+            .bind(artist_pattern.as_deref())
+            .bind(normalized_release.as_deref())
+            .bind(release_pattern.as_deref())
+            .bind(&normalized_text)
+            .bind(prefix_pattern)
+            .bind(i64::from(limit))
+            .fetch_all(&self.pool)
+            .await
+            .map_err(db_error)?
+        };
+        let mut tracks = Vec::with_capacity(rows.len());
+        for row in rows {
+            tracks.push(self.item_from_row(row).await?.track);
+        }
+        Ok(tracks)
+    }
+
+    pub async fn recent_listens(&self, limit: u32) -> AppResult<Vec<ListenSummary>> {
+        SqliteListeningRepository::new(self.pool.clone(), self.user_id)
+            .recent(effective_limit(limit))
+            .await
+    }
+
     async fn item_from_row(&self, row: SqliteRow) -> AppResult<LibraryItem> {
         let track_id = parse_track_id(row.try_get("track_id").map_err(db_error)?)?;
         let recording_id = parse_recording_id(row.try_get("recording_id").map_err(db_error)?)?;
@@ -337,6 +404,46 @@ impl SqliteLibraryRepository {
     fn user_text(&self) -> String {
         self.user_id.as_uuid().to_string()
     }
+}
+
+const fn effective_limit(limit: u32) -> u32 {
+    if limit == 0 {
+        20
+    } else if limit > 100 {
+        100
+    } else {
+        limit
+    }
+}
+
+fn normalize_search_text(value: &str) -> String {
+    value
+        .nfkc()
+        .flat_map(char::to_lowercase)
+        .collect::<String>()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn fts_match_expression(value: &str) -> Option<String> {
+    let terms: Vec<String> = value
+        .split_whitespace()
+        .filter(|term| term.chars().any(char::is_alphanumeric))
+        .map(|term| format!("\"{}\"*", term.replace('"', "\"\"")))
+        .collect();
+    (!terms.is_empty()).then(|| terms.join(" "))
+}
+
+fn escape_like(value: &str) -> String {
+    value
+        .replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_")
+}
+
+fn like_contains_pattern(value: &str) -> String {
+    format!("%{}%", escape_like(value))
 }
 
 #[async_trait]
