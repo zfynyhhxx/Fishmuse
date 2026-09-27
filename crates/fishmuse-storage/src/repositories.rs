@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use fishmuse_domain::{
-    AppResult, ConversationId, DiscNumber, LibraryItem, ListenId, ListenSummary, RecordingId,
-    ReleaseId, ReleaseSummary, TrackId, TrackNumber, TrackSummary, UserId,
+    AppResult, ConversationId, DiscNumber, LibraryItem, ListenId, ListenSummary, MediaAssetId,
+    RecordingId, ReleaseId, ReleaseSummary, ScanId, TrackId, TrackNumber, TrackSummary, UserId,
 };
 use serde_json::Value;
 use sqlx::{Row, SqlitePool, sqlite::SqliteRow};
@@ -9,6 +9,218 @@ use time::OffsetDateTime;
 use uuid::Uuid;
 
 use crate::database::storage_error;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ScanRunStatus {
+    Completed,
+    Cancelled,
+    Failed,
+}
+
+impl ScanRunStatus {
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::Completed => "completed",
+            Self::Cancelled => "cancelled",
+            Self::Failed => "failed",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StoredMediaAsset {
+    pub media_asset_id: MediaAssetId,
+    pub normalized_path: Vec<u8>,
+    pub original_path: Vec<u8>,
+    pub identity: Option<String>,
+    pub availability: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MediaAssetWrite {
+    pub media_asset_id: MediaAssetId,
+    pub normalized_path: Vec<u8>,
+    pub original_path: Vec<u8>,
+    pub identity: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ScanDiagnosticWrite {
+    pub path: Option<Vec<u8>>,
+    pub code: String,
+    pub message: String,
+}
+
+#[async_trait]
+pub trait ScanRepository: Send + Sync {
+    async fn upsert_root(&self, normalized_path: &[u8], original_path: &[u8]) -> AppResult<()>;
+    async fn begin_scan(&self) -> AppResult<ScanId>;
+    async fn list_assets(&self) -> AppResult<Vec<StoredMediaAsset>>;
+    async fn commit_batch(
+        &self,
+        scan_id: ScanId,
+        assets: &[MediaAssetWrite],
+        diagnostics: &[ScanDiagnosticWrite],
+    ) -> AppResult<()>;
+    async fn mark_missing(&self, media_asset_ids: &[MediaAssetId]) -> AppResult<()>;
+    async fn finish_scan(&self, scan_id: ScanId, status: ScanRunStatus) -> AppResult<()>;
+}
+
+#[derive(Clone)]
+pub struct SqliteScanRepository {
+    pool: SqlitePool,
+    user_id: UserId,
+}
+
+impl SqliteScanRepository {
+    #[must_use]
+    pub const fn new(pool: SqlitePool, user_id: UserId) -> Self {
+        Self { pool, user_id }
+    }
+
+    fn user_text(&self) -> String {
+        self.user_id.as_uuid().to_string()
+    }
+}
+
+#[async_trait]
+impl ScanRepository for SqliteScanRepository {
+    async fn upsert_root(&self, normalized_path: &[u8], original_path: &[u8]) -> AppResult<()> {
+        sqlx::query(
+            "INSERT INTO media_roots(media_root_id, user_id, normalized_path, original_path, enabled) VALUES (?, ?, ?, ?, 1) ON CONFLICT(user_id, normalized_path) DO UPDATE SET original_path = excluded.original_path, enabled = 1",
+        )
+        .bind(Uuid::now_v7().to_string())
+        .bind(self.user_text())
+        .bind(normalized_path)
+        .bind(original_path)
+        .execute(&self.pool)
+        .await
+        .map_err(db_error)?;
+        Ok(())
+    }
+
+    async fn begin_scan(&self) -> AppResult<ScanId> {
+        let scan_id = ScanId::new();
+        sqlx::query(
+            "INSERT INTO scan_runs(scan_run_id, user_id, media_root_id, status, started_at) VALUES (?, ?, NULL, 'running', ?)",
+        )
+        .bind(scan_id.as_uuid().to_string())
+        .bind(self.user_text())
+        .bind(OffsetDateTime::now_utc().unix_timestamp())
+        .execute(&self.pool)
+        .await
+        .map_err(db_error)?;
+        Ok(scan_id)
+    }
+
+    async fn list_assets(&self) -> AppResult<Vec<StoredMediaAsset>> {
+        let rows = sqlx::query(
+            "SELECT media_asset_id, normalized_path, original_path, content_fingerprint, availability FROM media_assets WHERE user_id = ?",
+        )
+        .bind(self.user_text())
+        .fetch_all(&self.pool)
+        .await
+        .map_err(db_error)?;
+        rows.into_iter()
+            .map(|row| {
+                let id: String = row.try_get("media_asset_id").map_err(db_error)?;
+                Ok(StoredMediaAsset {
+                    media_asset_id: MediaAssetId::try_from_uuid(parse_uuid(&id)?)
+                        .map_err(|error| storage_error("storage_failure", error))?,
+                    normalized_path: row.try_get("normalized_path").map_err(db_error)?,
+                    original_path: row.try_get("original_path").map_err(db_error)?,
+                    identity: row.try_get("content_fingerprint").map_err(db_error)?,
+                    availability: row.try_get("availability").map_err(db_error)?,
+                })
+            })
+            .collect()
+    }
+
+    async fn commit_batch(
+        &self,
+        scan_id: ScanId,
+        assets: &[MediaAssetWrite],
+        diagnostics: &[ScanDiagnosticWrite],
+    ) -> AppResult<()> {
+        let mut transaction = self.pool.begin().await.map_err(db_error)?;
+        for asset in assets {
+            let updated = sqlx::query(
+                "UPDATE media_assets SET normalized_path = ?, original_path = ?, content_fingerprint = ?, availability = 'available' WHERE media_asset_id = ? AND user_id = ?",
+            )
+            .bind(&asset.normalized_path)
+            .bind(&asset.original_path)
+            .bind(&asset.identity)
+            .bind(asset.media_asset_id.as_uuid().to_string())
+            .bind(self.user_text())
+            .execute(&mut *transaction)
+            .await
+            .map_err(db_error)?;
+            if updated.rows_affected() == 0 {
+                sqlx::query(
+                    "INSERT INTO media_assets(media_asset_id, user_id, track_id, normalized_path, original_path, content_fingerprint, availability) VALUES (?, ?, NULL, ?, ?, ?, 'available')",
+                )
+                .bind(asset.media_asset_id.as_uuid().to_string())
+                .bind(self.user_text())
+                .bind(&asset.normalized_path)
+                .bind(&asset.original_path)
+                .bind(&asset.identity)
+                .execute(&mut *transaction)
+                .await
+                .map_err(db_error)?;
+            }
+        }
+        for diagnostic in diagnostics {
+            sqlx::query(
+                "INSERT INTO scan_diagnostics(diagnostic_id, user_id, scan_run_id, path, code, message, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            )
+            .bind(Uuid::now_v7().to_string())
+            .bind(self.user_text())
+            .bind(scan_id.as_uuid().to_string())
+            .bind(&diagnostic.path)
+            .bind(&diagnostic.code)
+            .bind(&diagnostic.message)
+            .bind(OffsetDateTime::now_utc().unix_timestamp())
+            .execute(&mut *transaction)
+            .await
+            .map_err(db_error)?;
+        }
+        transaction.commit().await.map_err(db_error)?;
+        Ok(())
+    }
+
+    async fn mark_missing(&self, media_asset_ids: &[MediaAssetId]) -> AppResult<()> {
+        let mut transaction = self.pool.begin().await.map_err(db_error)?;
+        for media_asset_id in media_asset_ids {
+            sqlx::query(
+                "UPDATE media_assets SET availability = 'missing' WHERE media_asset_id = ? AND user_id = ?",
+            )
+            .bind(media_asset_id.as_uuid().to_string())
+            .bind(self.user_text())
+            .execute(&mut *transaction)
+            .await
+            .map_err(db_error)?;
+        }
+        transaction.commit().await.map_err(db_error)?;
+        Ok(())
+    }
+
+    async fn finish_scan(&self, scan_id: ScanId, status: ScanRunStatus) -> AppResult<()> {
+        let result = sqlx::query(
+            "UPDATE scan_runs SET status = ?, completed_at = ? WHERE scan_run_id = ? AND user_id = ?",
+        )
+        .bind(status.as_str())
+        .bind(OffsetDateTime::now_utc().unix_timestamp())
+        .bind(scan_id.as_uuid().to_string())
+        .bind(self.user_text())
+        .execute(&self.pool)
+        .await
+        .map_err(db_error)?;
+        if result.rows_affected() != 1 {
+            return Err(storage_error("storage_failure", "scan run not found"));
+        }
+        Ok(())
+    }
+}
 
 #[async_trait]
 pub trait LibraryRepository: Send + Sync {

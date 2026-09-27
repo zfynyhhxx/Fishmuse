@@ -7,6 +7,7 @@ mod repositories;
 pub use database::Database;
 pub use repositories::{
     ConversationMessage, ConversationRepository, LibraryRepository, ListeningRepository,
-    SettingsRepository, SqliteConversationRepository, SqliteLibraryRepository,
-    SqliteListeningRepository, SqliteSettingsRepository,
+    MediaAssetWrite, ScanDiagnosticWrite, ScanRepository, ScanRunStatus, SettingsRepository,
+    SqliteConversationRepository, SqliteLibraryRepository, SqliteListeningRepository,
+    SqliteScanRepository, SqliteSettingsRepository, StoredMediaAsset,
 };

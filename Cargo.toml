@@ -2,6 +2,7 @@
 members = [
     "apps/desktop/src-tauri",
     "crates/fishmuse-domain",
+    "crates/fishmuse-library",
     "crates/fishmuse-storage",
 ]
 # Subsequent tasks add each crate under crates/ as its Cargo.toml is created.

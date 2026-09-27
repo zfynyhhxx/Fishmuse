@@ -1,7 +1,7 @@
 use fishmuse_domain::{
     AppError, ArtistId, DiscNumber, ErrorCategory, ErrorCode, LibraryItem, MediaAssetId,
-    PlayableSource, RecordingId, ReleaseId, SourceProvenance, TrackId, TrackNumber, TrackSummary,
-    UserId,
+    PlayableSource, RecordingId, ReleaseId, ScanId, SourceProvenance, TrackId, TrackNumber,
+    TrackSummary, UserId,
 };
 use uuid::Uuid;
 
@@ -32,6 +32,8 @@ fn domain_ids_round_trip_as_uuid_v7_json_and_remain_distinct_types() {
     accepts_track_id(TrackId::new());
     let _artist_id = ArtistId::new();
     let _release_id = ReleaseId::new();
+    let scan_id = ScanId::new();
+    assert_eq!(scan_id.as_uuid().get_version_num(), 7);
 }
 
 #[test]

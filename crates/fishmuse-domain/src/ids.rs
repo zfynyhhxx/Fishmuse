@@ -70,3 +70,4 @@ domain_id!(MediaAssetId);
 domain_id!(ListenId);
 domain_id!(ConversationId);
 domain_id!(OperationId);
+domain_id!(ScanId);

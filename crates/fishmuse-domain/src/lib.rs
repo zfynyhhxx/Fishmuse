@@ -10,7 +10,7 @@ pub use account::User;
 pub use error::{AppError, AppResult, ErrorCategory, ErrorCode};
 pub use ids::{
     ArtistId, ConversationId, InvalidDomainId, ListenId, MediaAssetId, OperationId, RecordingId,
-    ReleaseId, TrackId, UserId,
+    ReleaseId, ScanId, TrackId, UserId,
 };
 pub use listening::ListenSummary;
 pub use music::{
