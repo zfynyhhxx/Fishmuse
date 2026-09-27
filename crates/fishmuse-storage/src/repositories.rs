@@ -511,10 +511,11 @@ impl ListeningRepository for SqliteListeningRepository {
     async fn append(&self, listen: &ListenSummary) -> AppResult<()> {
         let listened_ms = i64::try_from(listen.listened_ms)
             .map_err(|error| storage_error("storage_failure", error))?;
-        sqlx::query("INSERT INTO listening_events(listen_id, user_id, track_id, started_at, listened_ms, completed) VALUES (?, ?, ?, ?, ?, ?)")
+        sqlx::query("INSERT INTO listening_events(listen_id, user_id, track_id, started_at, ended_at, listened_ms, completed, interrupted) VALUES (?, ?, ?, ?, ?, ?, ?, 0)")
             .bind(listen.id.as_uuid().to_string())
             .bind(self.user_id.as_uuid().to_string())
             .bind(listen.track_id.as_uuid().to_string())
+            .bind(listen.started_at.unix_timestamp())
             .bind(listen.started_at.unix_timestamp())
             .bind(listened_ms)
             .bind(listen.completed)

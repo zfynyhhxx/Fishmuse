@@ -948,11 +948,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "fishmuse-playback"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "fishmuse-domain",
+ "serde",
+ "sha2",
+ "time",
+ "tokio",
+]
+
+[[package]]
 name = "fishmuse-storage"
 version = "0.1.0"
 dependencies = [
  "async-trait",
  "fishmuse-domain",
+ "fishmuse-playback",
+ "serde",
  "serde_json",
  "sqlx",
  "tempfile",

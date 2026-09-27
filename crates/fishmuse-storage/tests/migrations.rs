@@ -17,13 +17,13 @@ async fn scalar_i64(database: &Database, sql: &str) -> i64 {
 }
 
 #[tokio::test]
-async fn empty_database_migrates_to_version_one_with_complete_schema() {
+async fn empty_database_migrates_to_version_two_with_complete_schema() {
     let directory = TempDir::new().expect("temporary directory");
     let database = Database::open(&database_path(&directory))
         .await
         .expect("database should open");
 
-    assert_eq!(scalar_i64(&database, "PRAGMA user_version").await, 1);
+    assert_eq!(scalar_i64(&database, "PRAGMA user_version").await, 2);
 
     let required = [
         "users",
@@ -72,7 +72,7 @@ async fn reopening_is_idempotent_and_returns_the_same_local_user() {
 
     assert_eq!(first_user, second_user);
     assert_eq!(scalar_i64(&second, "SELECT COUNT(*) FROM users").await, 1);
-    assert_eq!(scalar_i64(&second, "PRAGMA user_version").await, 1);
+    assert_eq!(scalar_i64(&second, "PRAGMA user_version").await, 2);
 }
 
 #[tokio::test]
