@@ -12,7 +12,7 @@ use std::{
 
 use async_trait::async_trait;
 use filetime::FileTime;
-use fishmuse_domain::{ErrorCategory, ScanId};
+use fishmuse_domain::{ErrorCategory, MediaAssetId, ScanId};
 use fishmuse_library::{
     DiagnosticCode, LibraryScanner, ParsedTags, QuickFileIdentity, ScanFailure, ScanProgress,
     ScanRequest, ScanStatus, TagReader,
@@ -434,6 +434,78 @@ async fn identical_copy_beside_original_creates_a_distinct_media_asset() {
 }
 
 #[tokio::test]
+async fn identical_replacements_map_sorted_old_ids_to_sorted_new_paths_deterministically() {
+    let (database, user_id) = setup().await;
+    let directory = tempdir().expect("temporary directory");
+    let contents = vec![b'x'; 512 * 1024];
+    let new_paths: Vec<PathBuf> = ["new-a.flac", "new-b.flac", "new-c.flac", "new-d.flac"]
+        .into_iter()
+        .map(|name| directory.path().join(name))
+        .collect();
+    for path in &new_paths {
+        fixture(path, &contents);
+    }
+    let identity = fishmuse_library::FileIdentity::read(&new_paths[0]).expect("file identity");
+    let stored_identity = format!(
+        "q:{}|f:{}",
+        identity.quick_fingerprint, identity.content_fingerprint
+    );
+    let old_paths: Vec<PathBuf> = ["old-a.flac", "old-b.flac", "old-c.flac", "old-d.flac"]
+        .into_iter()
+        .map(|name| directory.path().join(name))
+        .collect();
+    let old_ids: Vec<MediaAssetId> = (0..old_paths.len()).map(|_| MediaAssetId::new()).collect();
+    for (old_path, old_id) in old_paths.iter().zip(&old_ids).rev() {
+        let normalized = fishmuse_library::normalize_path_bytes(old_path);
+        sqlx::query(
+            "INSERT INTO media_assets(media_asset_id, user_id, normalized_path, original_path, content_fingerprint, availability) VALUES (?, ?, ?, ?, ?, 'available')",
+        )
+        .bind(old_id.as_uuid().to_string())
+        .bind(user_id.as_uuid().to_string())
+        .bind(&normalized)
+        .bind(&normalized)
+        .bind(&stored_identity)
+        .execute(database.pool())
+        .await
+        .expect("seed disappeared asset");
+    }
+    let reader = FakeTagReader::successful();
+    let scanner = LibraryScanner::new(database.pool().clone(), reader.clone())
+        .with_concurrency_limit(new_paths.len());
+    let (progress, _receiver) = progress_channel();
+
+    let summary = scanner
+        .scan(
+            ScanRequest {
+                user_id,
+                roots: vec![directory.path().to_path_buf()],
+            },
+            CancellationToken::new(),
+            progress,
+        )
+        .await
+        .expect("replacement scan");
+
+    assert_eq!(summary.unchanged, 4);
+    assert_eq!(reader.call_count(), 0);
+    for (old_id, new_path) in old_ids.iter().zip(&new_paths) {
+        let stored_path: Vec<u8> = sqlx::query_scalar(
+            "SELECT normalized_path FROM media_assets WHERE user_id = ? AND media_asset_id = ?",
+        )
+        .bind(user_id.as_uuid().to_string())
+        .bind(old_id.as_uuid().to_string())
+        .fetch_one(database.pool())
+        .await
+        .expect("mapped asset path");
+        assert_eq!(
+            stored_path,
+            fishmuse_library::normalize_path_bytes(new_path),
+            "lexically ordered old paths must map to lexically ordered replacements"
+        );
+    }
+}
+
+#[tokio::test]
 async fn completed_rescan_marks_a_disappeared_file_unavailable_without_deleting_it() {
     let (database, user_id) = setup().await;
     let directory = tempdir().expect("temporary directory");
@@ -483,7 +555,11 @@ async fn root_dot_dot_alias_is_canonicalized_before_persistence_and_missing_dete
     fs::create_dir(directory.path().join("child")).expect("alias child directory");
     let canonical_root = directory.path().to_path_buf();
     let mut alias_spelling = canonical_root.as_os_str().to_os_string();
-    alias_spelling.push(r"\child\..");
+    alias_spelling.push(format!(
+        "{}child{}..",
+        std::path::MAIN_SEPARATOR,
+        std::path::MAIN_SEPARATOR
+    ));
     let alias_root = PathBuf::from(alias_spelling);
     assert_ne!(
         fishmuse_library::normalize_path_bytes(&canonical_root),

@@ -2,7 +2,10 @@ use std::{
     collections::{HashMap, HashSet, VecDeque},
     io,
     path::{Path, PathBuf},
-    sync::{Arc, Mutex},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicUsize, Ordering},
+    },
     time::Duration,
 };
 
@@ -17,7 +20,7 @@ use futures::{StreamExt, stream};
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 use tokio::sync::{
-    Semaphore,
+    Notify, Semaphore,
     mpsc::{self, Sender, UnboundedReceiver, error::TrySendError},
 };
 use tokio::{task::JoinHandle, time::Interval};
@@ -236,19 +239,24 @@ impl<R: TagReader> LibraryScanner<R> {
             &normalized_roots,
         );
         let semaphore = Arc::new(Semaphore::new(self.concurrency_limit));
+        // Hashing overlaps, but identity-dependent decisions follow the sorted candidate paths.
+        let identity_order = Arc::new(IdentityOrder::default());
         let tag_reader = self.tag_reader.clone();
-        let mut work = stream::iter(candidate_paths.into_iter().map(|path| {
-            let tag_reader = tag_reader.clone();
-            let semaphore = semaphore.clone();
-            let existing = existing.clone();
-            async move {
-                let _permit = semaphore
-                    .acquire_owned()
-                    .await
-                    .expect("scanner owns the semaphore for the duration of the scan");
-                process_file(tag_reader.as_ref(), path, &existing).await
-            }
-        }))
+        let mut work = stream::iter(candidate_paths.into_iter().enumerate().map(
+            |(index, path)| {
+                let tag_reader = tag_reader.clone();
+                let semaphore = semaphore.clone();
+                let existing = existing.clone();
+                let identity_order = identity_order.clone();
+                async move {
+                    let _permit = semaphore
+                        .acquire_owned()
+                        .await
+                        .expect("scanner owns the semaphore for the duration of the scan");
+                    process_file(tag_reader.as_ref(), path, &existing, &identity_order, index).await
+                }
+            },
+        ))
         .buffer_unordered(self.concurrency_limit);
 
         let mut assets = Vec::new();
@@ -445,10 +453,12 @@ struct ExistingAssets {
 
 impl ExistingAssets {
     fn new(
-        assets: Vec<StoredMediaAsset>,
+        mut assets: Vec<StoredMediaAsset>,
         discovered_paths: &HashSet<Vec<u8>>,
         normalized_roots: &[Vec<u8>],
     ) -> Self {
+        // A hash group maps lexically sorted disappeared paths to sorted replacement paths.
+        assets.sort_by(|left, right| left.normalized_path.cmp(&right.normalized_path));
         let mut by_path = HashMap::new();
         let mut move_candidates_by_full: HashMap<String, VecDeque<ExistingAsset>> = HashMap::new();
         for stored in &assets {
@@ -498,16 +508,54 @@ enum ProcessedFile {
     },
 }
 
+#[derive(Default)]
+struct IdentityOrder {
+    next_index: AtomicUsize,
+    changed: Notify,
+}
+
+impl IdentityOrder {
+    async fn wait_for_turn(self: &Arc<Self>, index: usize) -> IdentityTurn {
+        loop {
+            if self.next_index.load(Ordering::Acquire) == index {
+                return IdentityTurn {
+                    order: self.clone(),
+                };
+            }
+            let changed = self.changed.notified();
+            if self.next_index.load(Ordering::Acquire) == index {
+                continue;
+            }
+            changed.await;
+        }
+    }
+}
+
+struct IdentityTurn {
+    order: Arc<IdentityOrder>,
+}
+
+impl Drop for IdentityTurn {
+    fn drop(&mut self) {
+        self.order.next_index.fetch_add(1, Ordering::AcqRel);
+        self.order.changed.notify_waiters();
+    }
+}
+
 async fn process_file<R: TagReader>(
     tag_reader: &R,
     path: PathBuf,
     existing: &ExistingAssets,
+    identity_order: &Arc<IdentityOrder>,
+    index: usize,
 ) -> ProcessedFile {
     let normalized_path = normalize_path_bytes(&path);
     let same_path = existing.by_path.get(&normalized_path);
     let existing_media_asset_id = same_path.map(|asset| asset.stored.media_asset_id);
     let full_path = path.clone();
-    let identity = match tokio::task::spawn_blocking(move || FileIdentity::read(&full_path)).await {
+    let identity_result = tokio::task::spawn_blocking(move || FileIdentity::read(&full_path)).await;
+    let identity_turn = identity_order.wait_for_turn(index).await;
+    let identity = match identity_result {
         Ok(Ok(identity)) => identity,
         Ok(Err(error)) => {
             return failed_file(
@@ -552,12 +600,12 @@ async fn process_file<R: TagReader>(
         };
     }
 
+    let media_asset_id =
+        same_path.map_or_else(MediaAssetId::new, |asset| asset.stored.media_asset_id);
+    drop(identity_turn);
+
     match tag_reader.read(&path).await {
-        Ok(_tags) => ProcessedFile::Parsed(asset_write(
-            same_path.map_or_else(MediaAssetId::new, |asset| asset.stored.media_asset_id),
-            &path,
-            &identity,
-        )),
+        Ok(_tags) => ProcessedFile::Parsed(asset_write(media_asset_id, &path, &identity)),
         Err(failure) => failed_file(
             ScanDiagnosticWrite {
                 path: Some(native_path_bytes(&path)),
