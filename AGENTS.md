@@ -27,3 +27,15 @@ cargo fmt --all -- --check
 - Never commit API keys, credentials, `.env` files, database files, local logs, local performance reports, or media samples.
 - Keep generated dependencies and plugin build output outside version control.
 - Add behavior through a failing test first, then implement the smallest passing change.
+
+## Autonomous V0.1 execution
+
+- Treat `docs/superpowers/plans/2026-09-27-fishmuse-v0.1-muse-loop.md` as the implementation specification and execute its remaining tasks in order.
+- At the start of every run, read `docs/codex/STATUS.md`, `docs/codex/DECISIONS.md`, `docs/codex/FAILURES.md`, and the current task in the plan. Follow `docs/codex/RUNBOOK.md` as the operating contract.
+- Use one primary agent for routine implementation. Do not spawn development, review, guardian, or polling subagents. System auto-review for eligible approvals is allowed.
+- Work autonomously through inspect, test-first change, focused verification, repair, task-level verification, documentation, and a local commit. Do not pause for routine implementation choices; select the smallest reversible option consistent with the plan and record material choices in `docs/codex/DECISIONS.md`.
+- Keep status durable: update `docs/codex/STATUS.md` after each meaningful checkpoint, append verification evidence to `docs/codex/VERIFICATION.md`, and record recurring failures in `docs/codex/FAILURES.md`.
+- Prefer focused tests during iteration. Run the complete relevant task checks before committing, and reserve the full repository/Tier 1–2 regression for milestone boundaries and Task 15.
+- Never push, open or merge a pull request, deploy, publish, install into a real user profile, expose secrets, or perform destructive Git operations without explicit user authorization.
+- Stop only for a missing credential or external dependency, an irreversible/external action, a material specification conflict, a required manual live-integration step, or the same evidenced blocker after three distinct repair attempts. Report the exact blocker and the smallest user action that unlocks progress.
+- Do not mark V0.1 complete until every condition in the plan's `V0.1 完成定义` has concrete evidence.
