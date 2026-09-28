@@ -1,0 +1,13 @@
+{
+  "protocolVersion": 1,
+  "messageId": "0199a1b2-c3d4-7001-8000-000000000006",
+  "correlationId": "0199a1b2-c3d4-7001-8000-000000000003",
+  "sentAtUnixMs": 0,
+  "kind": "error.response",
+  "sequence": null,
+  "payload": {
+    "code": "operation_conflict",
+    "message": "The operation identifier was already used for a different command.",
+    "retryable": false
+  }
+}

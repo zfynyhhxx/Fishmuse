@@ -16,6 +16,19 @@ Append commands only when they were actually run. Record failures as failures; d
 - Result: PASS (9 required files, 3 expected Git status entries, 7 Markdown files, all cross-references present).
 - Environment note: the sandbox denied direct execution of `codex.exe`, so validation proves TOML syntax and exact supported settings but did not launch a nested Codex process.
 
+### 2026-09-28 — Task 7 baseline and foobar IPC v1
+
+- Commit or working state: clean `877d1ba` baseline before Task 7.
+- Command: `pnpm install --frozen-lockfile`; frontend test, typecheck, and lint commands from `AGENTS.md`; `cargo check --workspace`; `cargo test --workspace`; workspace clippy; `cargo fmt --all -- --check`.
+- Result: PASS (locked dependencies already current; frontend 2/2; Rust workspace 88/88; typecheck, lint, check, clippy, and fmt exited 0).
+- RED evidence: `cargo test -p fishmuse-playback --test protocol_vectors` and `--test framing` both failed because `fishmuse_playback::foobar` did not exist.
+- Repair evidence: the first protocol GREEN attempt exposed camelCase fields on enum struct variants; the second exposed `f32` JSON round-trip drift for `0.8`. `rename_all_fields = "camelCase"` and wire-level `f64` corrected the respective root causes without relaxing validation.
+- Command: parse every `protocol/foobar-v1/**/*.json` document with PowerShell `ConvertFrom-Json`.
+- Result: PASS (`json_parse=PASS`).
+- Command: `cargo test -p fishmuse-playback --test protocol_vectors`; `cargo test -p fishmuse-playback --test framing`; `cargo test -p fishmuse-playback`; `cargo clippy -p fishmuse-playback --all-targets -- -D warnings`; `cargo fmt --all -- --check`; `git diff --check`.
+- Result: PASS (protocol vectors 5/5, framing 4/4, full playback crate 27/27, zero clippy/fmt/diff errors).
+- Fresh pre-commit gate: `cargo test -p fishmuse-playback protocol` ran 5/5 protocol tests; `cargo test --workspace` ran 97/97; playback all-target clippy, workspace fmt check, and `git diff --check` exited 0.
+
 ## Entry format
 
 ### YYYY-MM-DD — task/checkpoint

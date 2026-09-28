@@ -1,0 +1,22 @@
+{
+  "protocolVersion": 1,
+  "messageId": "0199a1b2-c3d4-7001-8000-000000000004",
+  "correlationId": "0199a1b2-c3d4-7001-8000-000000000003",
+  "sentAtUnixMs": 0,
+  "kind": "command.ack",
+  "sequence": null,
+  "payload": {
+    "operationId": "0199a1b2-c3d4-7003-8000-000000000001",
+    "accepted": true,
+    "snapshot": {
+      "sessionId": "0199a1b2-c3d4-7002-8000-000000000001",
+      "revision": 42,
+      "status": "playing",
+      "trackId": "0199a1b2-c3d4-7004-8000-000000000001",
+      "positionMs": 0,
+      "durationMs": 411000,
+      "volume": 0.8,
+      "backend": "foobar2000"
+    }
+  }
+}

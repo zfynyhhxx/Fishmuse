@@ -1,0 +1,14 @@
+{
+  "protocolVersion": 1,
+  "messageId": "0199a1b2-c3d4-7001-8000-000000000001",
+  "correlationId": null,
+  "sentAtUnixMs": 0,
+  "kind": "handshake.request",
+  "sequence": null,
+  "payload": {
+    "appVersion": "0.1.0",
+    "supportedProtocolVersions": [1],
+    "processId": 4242,
+    "nonce": "0123456789abcdef0123456789abcdef"
+  }
+}

@@ -1,0 +1,224 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fishmuse.local/protocol/foobar-v1/schema/messages.schema.json",
+  "title": "FishMuse foobar IPC v1 payloads",
+  "oneOf": [
+    { "$ref": "#/$defs/handshakeRequest" },
+    { "$ref": "#/$defs/handshakeResponse" },
+    { "$ref": "#/$defs/commandRequest" },
+    { "$ref": "#/$defs/commandAck" },
+    { "$ref": "#/$defs/stateSnapshot" },
+    { "$ref": "#/$defs/playbackEvent" },
+    { "$ref": "#/$defs/errorResponse" },
+    { "$ref": "#/$defs/heartbeat" }
+  ],
+  "$defs": {
+    "uuid": { "type": "string", "format": "uuid" },
+    "nullableUuid": {
+      "oneOf": [
+        { "$ref": "#/$defs/uuid" },
+        { "type": "null" }
+      ]
+    },
+    "nullableU64": {
+      "oneOf": [
+        { "type": "integer", "minimum": 0 },
+        { "type": "null" }
+      ]
+    },
+    "capability": {
+      "enum": [
+        "play",
+        "pause",
+        "resume",
+        "stop",
+        "seek",
+        "skip_next",
+        "set_volume",
+        "get_state"
+      ]
+    },
+    "handshakeRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["appVersion", "supportedProtocolVersions", "processId", "nonce"],
+      "properties": {
+        "appVersion": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "supportedProtocolVersions": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "integer", "minimum": 1, "maximum": 65535 }
+        },
+        "processId": { "type": "integer", "minimum": 1, "maximum": 4294967295 },
+        "nonce": { "type": "string", "pattern": "^[0-9a-f]{32}$" }
+      }
+    },
+    "handshakeResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "pluginVersion",
+        "selectedProtocolVersion",
+        "processId",
+        "nonce",
+        "sessionId",
+        "capabilities"
+      ],
+      "properties": {
+        "pluginVersion": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "selectedProtocolVersion": { "const": 1 },
+        "processId": { "type": "integer", "minimum": 1, "maximum": 4294967295 },
+        "nonce": { "type": "string", "pattern": "^[0-9a-f]{32}$" },
+        "sessionId": { "$ref": "#/$defs/uuid" },
+        "capabilities": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/capability" }
+        }
+      }
+    },
+    "playCommand": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "trackId", "path", "subsongIndex", "startMs", "endMs"],
+      "properties": {
+        "name": { "const": "play" },
+        "trackId": { "$ref": "#/$defs/uuid" },
+        "path": { "type": "string", "minLength": 1, "maxLength": 32767 },
+        "subsongIndex": {
+          "oneOf": [
+            { "type": "integer", "minimum": 0, "maximum": 4294967295 },
+            { "type": "null" }
+          ]
+        },
+        "startMs": { "$ref": "#/$defs/nullableU64" },
+        "endMs": { "$ref": "#/$defs/nullableU64" }
+      }
+    },
+    "simpleCommand": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": { "enum": ["pause", "resume", "stop", "skip_next", "get_state"] }
+      }
+    },
+    "seekCommand": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "positionMs"],
+      "properties": {
+        "name": { "const": "seek" },
+        "positionMs": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "setVolumeCommand": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "volume"],
+      "properties": {
+        "name": { "const": "set_volume" },
+        "volume": { "type": "number", "minimum": 0, "maximum": 1 }
+      }
+    },
+    "command": {
+      "oneOf": [
+        { "$ref": "#/$defs/playCommand" },
+        { "$ref": "#/$defs/simpleCommand" },
+        { "$ref": "#/$defs/seekCommand" },
+        { "$ref": "#/$defs/setVolumeCommand" }
+      ]
+    },
+    "commandRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["operationId", "command"],
+      "properties": {
+        "operationId": { "$ref": "#/$defs/uuid" },
+        "command": { "$ref": "#/$defs/command" }
+      }
+    },
+    "stateSnapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sessionId",
+        "revision",
+        "status",
+        "trackId",
+        "positionMs",
+        "durationMs",
+        "volume",
+        "backend"
+      ],
+      "properties": {
+        "sessionId": { "$ref": "#/$defs/uuid" },
+        "revision": { "type": "integer", "minimum": 0 },
+        "status": { "enum": ["stopped", "loading", "playing", "paused", "unavailable"] },
+        "trackId": { "$ref": "#/$defs/nullableUuid" },
+        "positionMs": { "type": "integer", "minimum": 0 },
+        "durationMs": { "$ref": "#/$defs/nullableU64" },
+        "volume": { "type": "number", "minimum": 0, "maximum": 1 },
+        "backend": { "const": "foobar2000" }
+      }
+    },
+    "commandAck": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["operationId", "accepted", "snapshot"],
+      "properties": {
+        "operationId": { "$ref": "#/$defs/uuid" },
+        "accepted": { "const": true },
+        "snapshot": { "$ref": "#/$defs/stateSnapshot" }
+      }
+    },
+    "playbackEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["event", "snapshot", "errorCode"],
+      "properties": {
+        "event": {
+          "enum": ["state_changed", "track_changed", "position", "volume_changed", "playback_error"]
+        },
+        "snapshot": { "$ref": "#/$defs/stateSnapshot" },
+        "errorCode": {
+          "oneOf": [
+            { "type": "string", "minLength": 1, "maxLength": 128 },
+            { "type": "null" }
+          ]
+        }
+      }
+    },
+    "errorResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "message", "retryable"],
+      "properties": {
+        "code": {
+          "enum": [
+            "protocol_invalid",
+            "protocol_unsupported",
+            "frame_too_large",
+            "handshake_required",
+            "unauthorized",
+            "operation_conflict",
+            "backend_unavailable",
+            "playback_failed"
+          ]
+        },
+        "message": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "retryable": { "type": "boolean" }
+      }
+    },
+    "heartbeat": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["nonce"],
+      "properties": {
+        "nonce": { "type": "string", "pattern": "^[0-9a-f]{32}$" }
+      }
+    }
+  }
+}

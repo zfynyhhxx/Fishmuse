@@ -1,0 +1,181 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fishmuse.local/protocol/foobar-v1/schema/envelope.schema.json",
+  "title": "FishMuse foobar IPC v1 envelope",
+  "oneOf": [
+    { "$ref": "#/$defs/handshakeRequest" },
+    { "$ref": "#/$defs/handshakeResponse" },
+    { "$ref": "#/$defs/commandRequest" },
+    { "$ref": "#/$defs/commandAck" },
+    { "$ref": "#/$defs/stateSnapshot" },
+    { "$ref": "#/$defs/playbackEvent" },
+    { "$ref": "#/$defs/errorResponse" },
+    { "$ref": "#/$defs/ping" },
+    { "$ref": "#/$defs/pong" }
+  ],
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "nullableUuid": {
+      "oneOf": [
+        { "$ref": "#/$defs/uuid" },
+        { "type": "null" }
+      ]
+    },
+    "nullableSequence": {
+      "oneOf": [
+        { "type": "integer", "minimum": 0 },
+        { "type": "null" }
+      ]
+    },
+    "base": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "protocolVersion",
+        "messageId",
+        "correlationId",
+        "sentAtUnixMs",
+        "kind",
+        "sequence",
+        "payload"
+      ],
+      "properties": {
+        "protocolVersion": { "const": 1 },
+        "messageId": { "$ref": "#/$defs/uuid" },
+        "correlationId": { "$ref": "#/$defs/nullableUuid" },
+        "sentAtUnixMs": { "type": "integer", "minimum": 0 },
+        "kind": {
+          "enum": [
+            "handshake.request",
+            "handshake.response",
+            "command.request",
+            "command.ack",
+            "state.snapshot",
+            "playback.event",
+            "error.response",
+            "ping",
+            "pong"
+          ]
+        },
+        "sequence": { "$ref": "#/$defs/nullableSequence" },
+        "payload": { "type": "object" }
+      }
+    },
+    "handshakeRequest": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        {
+          "properties": {
+            "kind": { "const": "handshake.request" },
+            "correlationId": { "type": "null" },
+            "sequence": { "type": "null" },
+            "payload": { "$ref": "messages.schema.json#/$defs/handshakeRequest" }
+          }
+        }
+      ]
+    },
+    "handshakeResponse": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        {
+          "properties": {
+            "kind": { "const": "handshake.response" },
+            "correlationId": { "$ref": "#/$defs/uuid" },
+            "sequence": { "type": "null" },
+            "payload": { "$ref": "messages.schema.json#/$defs/handshakeResponse" }
+          }
+        }
+      ]
+    },
+    "commandRequest": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        {
+          "properties": {
+            "kind": { "const": "command.request" },
+            "sequence": { "type": "null" },
+            "payload": { "$ref": "messages.schema.json#/$defs/commandRequest" }
+          }
+        }
+      ]
+    },
+    "commandAck": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        {
+          "properties": {
+            "kind": { "const": "command.ack" },
+            "correlationId": { "$ref": "#/$defs/uuid" },
+            "sequence": { "type": "null" },
+            "payload": { "$ref": "messages.schema.json#/$defs/commandAck" }
+          }
+        }
+      ]
+    },
+    "stateSnapshot": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        {
+          "properties": {
+            "kind": { "const": "state.snapshot" },
+            "sequence": { "type": "integer", "minimum": 0 },
+            "payload": { "$ref": "messages.schema.json#/$defs/stateSnapshot" }
+          }
+        }
+      ]
+    },
+    "playbackEvent": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        {
+          "properties": {
+            "kind": { "const": "playback.event" },
+            "sequence": { "type": "integer", "minimum": 0 },
+            "payload": { "$ref": "messages.schema.json#/$defs/playbackEvent" }
+          }
+        }
+      ]
+    },
+    "errorResponse": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        {
+          "properties": {
+            "kind": { "const": "error.response" },
+            "correlationId": { "$ref": "#/$defs/uuid" },
+            "sequence": { "type": "null" },
+            "payload": { "$ref": "messages.schema.json#/$defs/errorResponse" }
+          }
+        }
+      ]
+    },
+    "ping": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        {
+          "properties": {
+            "kind": { "const": "ping" },
+            "sequence": { "type": "null" },
+            "payload": { "$ref": "messages.schema.json#/$defs/heartbeat" }
+          }
+        }
+      ]
+    },
+    "pong": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        {
+          "properties": {
+            "kind": { "const": "pong" },
+            "correlationId": { "$ref": "#/$defs/uuid" },
+            "sequence": { "type": "null" },
+            "payload": { "$ref": "messages.schema.json#/$defs/heartbeat" }
+          }
+        }
+      ]
+    }
+  }
+}

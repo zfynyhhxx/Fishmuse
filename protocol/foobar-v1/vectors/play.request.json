@@ -1,0 +1,19 @@
+{
+  "protocolVersion": 1,
+  "messageId": "0199a1b2-c3d4-7001-8000-000000000003",
+  "correlationId": null,
+  "sentAtUnixMs": 0,
+  "kind": "command.request",
+  "sequence": null,
+  "payload": {
+    "operationId": "0199a1b2-c3d4-7003-8000-000000000001",
+    "command": {
+      "name": "play",
+      "trackId": "0199a1b2-c3d4-7004-8000-000000000001",
+      "path": "C:\\FishMuseFixture\\Waltz for Debby.flac",
+      "subsongIndex": null,
+      "startMs": null,
+      "endMs": null
+    }
+  }
+}

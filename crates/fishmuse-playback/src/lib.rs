@@ -2,6 +2,7 @@
 
 mod backend;
 mod command;
+pub mod foobar;
 mod listening;
 mod manager;
 mod operation_store;

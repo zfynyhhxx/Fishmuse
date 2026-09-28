@@ -1,0 +1,25 @@
+{
+  "protocolVersion": 1,
+  "messageId": "0199a1b2-c3d4-7001-8000-000000000002",
+  "correlationId": "0199a1b2-c3d4-7001-8000-000000000001",
+  "sentAtUnixMs": 0,
+  "kind": "handshake.response",
+  "sequence": null,
+  "payload": {
+    "pluginVersion": "0.1.0",
+    "selectedProtocolVersion": 1,
+    "processId": 4343,
+    "nonce": "0123456789abcdef0123456789abcdef",
+    "sessionId": "0199a1b2-c3d4-7002-8000-000000000001",
+    "capabilities": [
+      "play",
+      "pause",
+      "resume",
+      "stop",
+      "seek",
+      "skip_next",
+      "set_volume",
+      "get_state"
+    ]
+  }
+}

@@ -5,16 +5,16 @@ Last updated: 2026-09-28
 ## Repository checkpoint
 
 - Branch: `feature/fishmuse-v0.1-muse-loop`
-- Head before autonomy setup: `ffbd60d fix(playback): close cancellation and tracking gaps`
-- Working tree before autonomy setup: clean
+- Head before Task 7: `877d1ba chore(codex): add autonomous v0.1 workflow`
+- Working tree before Task 7: clean
 - Autonomous Codex configuration: prepared and structurally verified on 2026-09-28
-- Completed implementation tasks: Task 1–6
-- Current task: Task 7, foobar IPC v1 protocol and cross-language golden vectors
-- Remaining implementation tasks: Task 7–15
+- Completed implementation tasks: Task 1–7
+- Current task: Task 8, independent foo_fishmuse component and secure Named Pipe service
+- Remaining implementation tasks: Task 8–15
 
 ## Next autonomous action
 
-Start Task 7 Step 1 from the implementation plan: create the closed JSON schemas and golden vectors, then proceed test-first through the Rust codec and framing checks.
+Start Task 8 Step 1 from the implementation plan: establish the SDK-independent C++ protocol test target against the frozen Task 7 schemas and vectors, and record the expected RED result before implementing the codec and server boundary.
 
 ## Required external gates
 
