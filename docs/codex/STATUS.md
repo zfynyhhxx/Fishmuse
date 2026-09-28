@@ -8,17 +8,17 @@ Last updated: 2026-09-29
 - Head before Task 7: `877d1ba chore(codex): add autonomous v0.1 workflow`
 - Working tree before Task 7: clean
 - Autonomous Codex configuration: prepared and structurally verified on 2026-09-28
-- Completed implementation tasks: Task 1–7
-- Current task: Task 8 commit and public GitHub publication
-- Remaining implementation tasks: Task 8–15
+- Completed implementation tasks: Task 1–9
+- Current task: Task 10 Step 1, credential-storage and AI boundary RED preflight
+- Remaining implementation tasks: Task 10–15
 
 ## Next autonomous action
 
-Commit the fully verified Task 8 change, publish and push the branch to the authorized public GitHub repository, then enter Task 9.
+Read the exact Task 10 plan and relevant credential/provider ports, then add the planned failing tests before production implementation. Do not use a real DeepSeek key or spend without the explicit live-gate authorization required by the plan.
 
 ## Current blocker
 
-- None for Task 8. SDK version 2026-09-17 was verified locally, Debug/Release x64 builds pass, and the final Release DLL passed the real v2.24.3 x64 smoke test twice in an isolated portable copy. The authorized source installation was not modified.
+- None. Task 8 is committed as `85fc001` and its branch is present at the same SHA in the public `zfynyhhxx/Fishmuse` GitHub repository. SDK version 2026-09-17 was verified locally, Debug/Release x64 builds pass, and the final Release DLL passed the real v2.24.3 x64 smoke test in an isolated portable copy. The authorized source installation was not modified.
 - The wrong-SID gate passed with a real different-user MicrosoftAccount token: the current-user positive control connected, the secondary token had a different SID, and synchronous `CreateFileW` was denied with `ERROR_ACCESS_DENIED (5)` by the real pipe DACL.
 - The password was entered only into the Windows credential UI and was neither logged nor persisted. No foobar or auth-probe process remains running.
 
@@ -30,4 +30,4 @@ Commit the fully verified Task 8 change, publish and push the branch to the auth
 
 ## Completion state
 
-V0.1 is not complete. Task 8's implementation, fresh real SDK Debug/Release builds, CTest, cross-language protocol checks, disposable-host component lifecycle, real playback/reconnect smoke, and credentialed wrong-SID gate all pass. The final public-boundary audit also passes; Task 8 is ready to commit. Tasks 9–15 remain untouched in accordance with the sequential plan.
+V0.1 is not complete. Task 8 is complete and public. Task 9 adds a Tokio Windows Named Pipe client, bounded writer/correlation machinery, typed error mapping, reconnect supervisor, same-OperationId retry, injected local path resolver, session-aware monotonic reconciliation, startup-event buffering, and explicit transport shutdown. Focused tests, all 36 playback tests, strict all-target clippy, workspace fmt, staged diff, and public-boundary checks pass. Tasks 10–15 remain unfinished.

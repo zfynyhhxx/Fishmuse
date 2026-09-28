@@ -105,6 +105,22 @@ Append commands only when they were actually run. Record failures as failures; d
 - Fresh real-host result: the freshly linked Release DLL was copied only into the ignored disposable v2.24.3 x64 host and passed handshake, commands, byte-identical OperationId replay, events, and authoritative snapshots with a maximum sampled ACK of 71 ms. The host exited cleanly and no foobar process remained.
 - Fresh cross-language/static result: pinned Rust 1.98.1 protocol vectors passed 6/6; both PowerShell live scripts parsed under Windows PowerShell 5.1; the `CreateFileW` access mask equaled 3221225472; `git diff --check` passed apart from informational line-ending warnings.
 - Fresh public-boundary result: all 40 modified/untracked candidates were checked; no candidate binary, API key/private key pattern, supplied account email, machine-user absolute path, or installed-host path was present. SDK, host, DLL, WAV, profile, and build artifacts remain ignored.
+- Task 8 commit/publication: commit `85fc001` contains the 40-file Task 8 snapshot. GitHub API readback reported `zfynyhhxx/Fishmuse` as `PUBLIC`; remote branch `feature/fishmuse-v0.1-muse-loop` resolved to the exact local SHA `85fc001deb736a93355920ed2d0a01bd2b1a1e4b`.
+
+### 2026-09-29 — Task 9 Rust foobar client RED
+
+- Commit or working state: clean `85fc001` Task 8 baseline, then uncommitted Task 9 tests only.
+- RED command: pinned Rust 1.98.1 `cargo test -p fishmuse-playback --test foobar_client`.
+- RED result: expected compile failure; `FoobarClient` and `FoobarConfig` do not exist. The fake Tokio Named Pipe fixture compiled far enough to reach the intended missing production API.
+- RED command: pinned Rust 1.98.1 `cargo test -p fishmuse-playback --test foobar_reconnect`.
+- RED result: expected compile failure; `ConnectionState`, `FoobarBackend`, `FoobarConfig`, `ReconnectPolicy`, and `StateReconciler` do not exist. Production implementation has not started.
+- First client GREEN: `cargo test -p fishmuse-playback --test foobar_client` passed 3/3. The Tokio Named Pipe fixture proved handshake/capability negotiation, request correlation, initial snapshot, asynchronous event delivery, bounded ACK timeout, and typed remote-error mapping without retaining the remote message's private path.
+- Reconnect repair evidence: the first run passed 2/4 and exposed two invalid raw-revision assertions plus a real EOF race. When ACK + event were queued before pipe close, the supervisor could select the disconnect watch before consuming the already-enqueued event. Domain assertions now require monotonic application revisions across session reset, and EOF handling drains only events already queued by that connection before session teardown.
+- Reconnect GREEN: `cargo test -p fishmuse-playback --test foobar_reconnect -- --nocapture` passed 4/4. It covers unavailable startup without application failure, immediate manual reconnect despite a five-second scheduled backoff, capped exponential jitter, one retry with the identical OperationId after lost ACK/disconnect, handshake-before-snapshot ordering, post-snapshot incremental events, stale old-session rejection, and new-session sequence reset.
+- Task-level command: pinned Rust 1.98.1 `cargo test -p fishmuse-playback`; `cargo clippy -p fishmuse-playback --all-targets -- -D warnings`; `cargo fmt --all -- --check`.
+- Pre-commit review RED: an event sent immediately after the authoritative reconnect snapshot could be published before the first broadcast subscriber existed, and the backend supervisor lacked an awaitable transport shutdown. Focused regressions failed by timing out on the buffered event and by the missing `shutdown` API. The client now retains a bounded first receiver from channel creation; the supervisor observes shutdown while connecting, connected, or backing off, closes the active client, and converges its watch state before `shutdown().await` returns. A separate regression confirms the fake server observes pipe closure.
+- Final task-level command: pinned Rust 1.98.1 `cargo test -p fishmuse-playback`; `cargo clippy -p fishmuse-playback --all-targets -- -D warnings`; `cargo fmt --all -- --check`.
+- Final task-level result: PASS (36/36 playback tests, including client 3/3 and reconnect 5/5; zero clippy warnings/errors; zero fmt differences).
 
 ## Entry format
 
