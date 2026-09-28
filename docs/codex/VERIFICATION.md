@@ -29,6 +29,14 @@ Append commands only when they were actually run. Record failures as failures; d
 - Result: PASS (protocol vectors 5/5, framing 4/4, full playback crate 27/27, zero clippy/fmt/diff errors).
 - Fresh pre-commit gate: `cargo test -p fishmuse-playback protocol` ran 5/5 protocol tests; `cargo test --workspace` ran 97/97; playback all-target clippy, workspace fmt check, and `git diff --check` exited 0.
 
+### 2026-09-28 — Task 7 nested duplicate-field hardening
+
+- Commit or working state: follow-up review on `4941c01` before Task 8 consumed the Rust contract.
+- RED evidence: a `command.request` containing duplicate nested `operationId` keys was accepted with the later value because the payload had first been materialized as `serde_json::Value`.
+- Repair: preserve payload bytes with `serde_json::value::RawValue`, then deserialize directly into the closed typed payload so duplicate known fields at every typed level are rejected.
+- Command: focused nested-duplicate test; `cargo test -p fishmuse-playback`; `cargo test --workspace`; playback all-target clippy; workspace fmt and diff checks.
+- Result: PASS (focused regression 1/1, playback 27/27, workspace 97/97, zero clippy/fmt/diff errors).
+
 ## Entry format
 
 ### YYYY-MM-DD — task/checkpoint

@@ -2,7 +2,7 @@ use std::{collections::HashSet, fmt};
 
 use fishmuse_domain::{OperationId, TrackId};
 use serde::{Deserialize, Serialize, Serializer, ser::Error as _};
-use serde_json::Value;
+use serde_json::{Value, value::RawValue};
 use uuid::Uuid;
 
 use crate::{PlaybackBackendKind, PlaybackStatus};
@@ -286,7 +286,7 @@ struct RawEnvelope {
     sent_at_unix_ms: u64,
     kind: String,
     sequence: Option<u64>,
-    payload: Value,
+    payload: Box<RawValue>,
 }
 
 #[derive(Serialize)]
@@ -312,15 +312,15 @@ pub fn decode_json(input: &[u8]) -> Result<Envelope, ProtocolError> {
     }
 
     let message = match raw.kind.as_str() {
-        "handshake.request" => Message::HandshakeRequest(payload(raw.payload)?),
-        "handshake.response" => Message::HandshakeResponse(payload(raw.payload)?),
-        "command.request" => Message::CommandRequest(payload(raw.payload)?),
-        "command.ack" => Message::CommandAck(payload(raw.payload)?),
-        "state.snapshot" => Message::StateSnapshot(payload(raw.payload)?),
-        "playback.event" => Message::PlaybackEvent(payload(raw.payload)?),
-        "error.response" => Message::ErrorResponse(payload(raw.payload)?),
-        "ping" => Message::Ping(payload(raw.payload)?),
-        "pong" => Message::Pong(payload(raw.payload)?),
+        "handshake.request" => Message::HandshakeRequest(payload(&raw.payload)?),
+        "handshake.response" => Message::HandshakeResponse(payload(&raw.payload)?),
+        "command.request" => Message::CommandRequest(payload(&raw.payload)?),
+        "command.ack" => Message::CommandAck(payload(&raw.payload)?),
+        "state.snapshot" => Message::StateSnapshot(payload(&raw.payload)?),
+        "playback.event" => Message::PlaybackEvent(payload(&raw.payload)?),
+        "error.response" => Message::ErrorResponse(payload(&raw.payload)?),
+        "ping" => Message::Ping(payload(&raw.payload)?),
+        "pong" => Message::Pong(payload(&raw.payload)?),
         _ => return Err(ProtocolError::invalid("unknown message kind")),
     };
 
@@ -336,11 +336,11 @@ pub fn decode_json(input: &[u8]) -> Result<Envelope, ProtocolError> {
     Ok(envelope)
 }
 
-fn payload<T>(value: Value) -> Result<T, ProtocolError>
+fn payload<T>(value: &RawValue) -> Result<T, ProtocolError>
 where
     T: for<'de> Deserialize<'de>,
 {
-    serde_json::from_value(value).map_err(|error| ProtocolError::invalid(error.to_string()))
+    serde_json::from_str(value.get()).map_err(|error| ProtocolError::invalid(error.to_string()))
 }
 
 fn validate(envelope: &Envelope) -> Result<(), ProtocolError> {

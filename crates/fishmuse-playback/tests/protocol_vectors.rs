@@ -76,6 +76,15 @@ fn protocol_rejects_duplicate_fields_non_finite_numbers_invalid_uuid_and_invalid
     }"#;
     assert_invalid(duplicate);
 
+    let nested_duplicate = vector_text("play.request.json").replace(
+        "\"operationId\": \"0199a1b2-c3d4-7003-8000-000000000001\",",
+        concat!(
+            "\"operationId\": \"0199a1b2-c3d4-7003-8000-000000000001\",",
+            "\n    \"operationId\": \"0199a1b2-c3d4-7003-8000-000000000002\","
+        ),
+    );
+    assert_invalid(nested_duplicate);
+
     let non_finite = vector_text("state.snapshot.json").replace("0.8", "NaN");
     assert_invalid(non_finite);
 
