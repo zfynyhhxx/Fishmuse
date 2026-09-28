@@ -14,7 +14,12 @@ Last updated: 2026-09-28
 
 ## Next autonomous action
 
-Start Task 8 Step 1 from the implementation plan: establish the SDK-independent C++ protocol test target against the frozen Task 7 schemas and vectors, and record the expected RED result before implementing the codec and server boundary.
+Resume Task 8 Step 1 after the pinned vcpkg dependency tool can obtain its required CMake archive. The C++ protocol/security/idempotency test sources and manifest are present but intentionally have not been implemented or committed because CMake configuration has not reached the expected RED compile failure.
+
+## Current blocker
+
+- vcpkg 2026.07.29 requires `cmake-4.4.0-windows-x86_64.zip`; the configured GitHub release download remained at zero bytes through the third distinct dependency repair.
+- Smallest unblock: place the official archive at `.deps/vcpkg/downloads/cmake-4.4.0-windows-x86_64.zip` (vcpkg verifies it), or make that GitHub release asset reachable through the host proxy, then rerun the Task 8 configure command.
 
 ## Required external gates
 

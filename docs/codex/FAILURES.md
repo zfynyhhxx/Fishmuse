@@ -4,7 +4,14 @@ Use this file only for failures that may recur across turns. One-off red tests t
 
 ## Active blockers
 
-None recorded.
+### Pinned vcpkg dependency download cannot complete through the host proxy
+
+- First seen: 2026-09-28 during Task 8 Step 1, before the intended C++ RED build.
+- Current task and command: `cmake --preset windows-msvc -S native/foo-fishmuse` using `.deps/vcpkg` release `2026.07.29` and manifest dependency `nlohmann-json`.
+- Root-cause evidence: the initial shallow clone lacked port tree `060c829772d52e920fee94cf84755031c61e3b67`; network transfers through the configured proxy then stopped producing bytes rather than reporting a project compile error.
+- Repair attempts (maximum three distinct attempts): (1) full `git fetch --unshallow --tags` ran about nine minutes with no pack growth; (2) `--filter=blob:none` history fetch progressed to 26% then stopped with no pack growth; (3) removing manifest version-range resolution used the pinned current port successfully, but vcpkg's official CMake 4.4 archive `.part` stayed at 0 bytes for about four minutes.
+- Current result: Task 8 CMake configuration is incomplete; tests have not reached their expected missing-implementation failure, so TDD prohibits implementing the C++ production code.
+- Smallest action that would unblock progress: place the official `cmake-4.4.0-windows-x86_64.zip` in `.deps/vcpkg/downloads/` or allow that GitHub release asset through the host proxy, then rerun CMake configure.
 
 ## Entry format
 

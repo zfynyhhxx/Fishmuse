@@ -37,6 +37,13 @@ Append commands only when they were actually run. Record failures as failures; d
 - Command: focused nested-duplicate test; `cargo test -p fishmuse-playback`; `cargo test --workspace`; playback all-target clippy; workspace fmt and diff checks.
 - Result: PASS (focused regression 1/1, playback 27/27, workspace 97/97, zero clippy/fmt/diff errors).
 
+### 2026-09-28 — Task 8 C++ dependency preflight
+
+- Commit or working state: clean `c124829` before adding uncommitted Task 8 test scaffolding.
+- Command: pinned vcpkg bootstrap at release `2026.07.29`; `cmake --preset windows-msvc -S native/foo-fishmuse` with manifest dependency `nlohmann-json`.
+- Result: FAIL before compilation. The first manifest configuration could not resolve the port tree from a shallow clone. Full-history and blobless-history repairs both stalled through the proxy. Using the pinned checkout's current port set bypassed history resolution, but vcpkg's required CMake 4.4 archive download remained at zero bytes.
+- Evidence or follow-up: no Task 8 RED/GREEN claim and no Task 8 commit. Resume only after the official CMake archive is available to vcpkg; then confirm the intended missing-implementation RED before writing production C++.
+
 ## Entry format
 
 ### YYYY-MM-DD — task/checkpoint
