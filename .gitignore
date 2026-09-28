@@ -10,6 +10,9 @@ dist/
 *.db-wal
 *.db-shm
 plugins/**/build/
+native/foo-fishmuse/build/
+native/foo-fishmuse/vcpkg_installed/
+native/foo-fishmuse/x64/
 .deps/
 reports/performance/
 *.perf.json

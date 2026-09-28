@@ -1,6 +1,6 @@
 # FishMuse V0.1 Status
 
-Last updated: 2026-09-28
+Last updated: 2026-09-29
 
 ## Repository checkpoint
 
@@ -9,17 +9,18 @@ Last updated: 2026-09-28
 - Working tree before Task 7: clean
 - Autonomous Codex configuration: prepared and structurally verified on 2026-09-28
 - Completed implementation tasks: Task 1–7
-- Current task: Task 8, independent foo_fishmuse component and secure Named Pipe service
+- Current task: Task 8 commit and public GitHub publication
 - Remaining implementation tasks: Task 8–15
 
 ## Next autonomous action
 
-Resume Task 8 Step 1 after the pinned vcpkg dependency tool can obtain its required CMake archive. The C++ protocol/security/idempotency test sources and manifest are present but intentionally have not been implemented or committed because CMake configuration has not reached the expected RED compile failure.
+Commit the fully verified Task 8 change, publish and push the branch to the authorized public GitHub repository, then enter Task 9.
 
 ## Current blocker
 
-- vcpkg 2026.07.29 requires `cmake-4.4.0-windows-x86_64.zip`; after the third distinct dependency repair, no finalized archive exists. The canceled transfer left a 25,888,028-byte `.part` whose ZIP central directory is missing and whose SHA-512 (`2b7e880e...10371a1`) does not match vcpkg's pinned hash (`35479675...59e04d0`), so it is unusable.
-- Smallest unblock: place the official archive at `.deps/vcpkg/downloads/cmake-4.4.0-windows-x86_64.zip` (vcpkg verifies it), or make that GitHub release asset reachable through the host proxy, then rerun the Task 8 configure command.
+- None for Task 8. SDK version 2026-09-17 was verified locally, Debug/Release x64 builds pass, and the final Release DLL passed the real v2.24.3 x64 smoke test twice in an isolated portable copy. The authorized source installation was not modified.
+- The wrong-SID gate passed with a real different-user MicrosoftAccount token: the current-user positive control connected, the secondary token had a different SID, and synchronous `CreateFileW` was denied with `ERROR_ACCESS_DENIED (5)` by the real pipe DACL.
+- The password was entered only into the Windows credential UI and was neither logged nor persisted. No foobar or auth-probe process remains running.
 
 ## Required external gates
 
@@ -29,4 +30,4 @@ Resume Task 8 Step 1 after the pinned vcpkg dependency tool can obtain its requi
 
 ## Completion state
 
-V0.1 is not complete. Continue autonomously until a required external gate is reached or all completion evidence is recorded.
+V0.1 is not complete. Task 8's implementation, fresh real SDK Debug/Release builds, CTest, cross-language protocol checks, disposable-host component lifecycle, real playback/reconnect smoke, and credentialed wrong-SID gate all pass. The final public-boundary audit also passes; Task 8 is ready to commit. Tasks 9–15 remain untouched in accordance with the sequential plan.

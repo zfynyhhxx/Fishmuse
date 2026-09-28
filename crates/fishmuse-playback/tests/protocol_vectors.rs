@@ -39,6 +39,20 @@ fn protocol_golden_vectors_round_trip_without_semantic_changes() {
 }
 
 #[test]
+fn protocol_accepts_active_foobar_state_when_track_is_unknown_to_fishmuse() {
+    let mut snapshot: Value =
+        serde_json::from_str(&vector_text("state.snapshot.json")).expect("vector is JSON");
+    snapshot["payload"]["trackId"] = Value::Null;
+
+    let decoded = decode_json(&serde_json::to_vec(&snapshot).unwrap())
+        .expect("schema permits an active foobar track without a FishMuse TrackId");
+    assert_eq!(
+        serde_json::to_value(decoded).unwrap()["payload"]["trackId"],
+        Value::Null
+    );
+}
+
+#[test]
 fn protocol_rejects_unknown_kind_unsupported_version_missing_and_unknown_fields() {
     let base: Value = serde_json::from_str(&vector_text("handshake.request.json")).unwrap();
 

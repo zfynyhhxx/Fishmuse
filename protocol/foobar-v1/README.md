@@ -20,9 +20,12 @@ from this directory; neither implementation is authoritative on its own.
   must reuse that ID so the component can return the recorded result without
   repeating a side effect.
 
-The pipe name is `\\.\pipe\FishMuse.Foobar.v1.<UserSidHash>`. The component
-must apply an explicit DACL for the current user and SYSTEM and must verify the
-connected client's token. The pipe name is not an authorization mechanism.
+The pipe name is `\\.\pipe\FishMuse.Foobar.v1.<UserSidHash>`. `UserSidHash`
+is lowercase hexadecimal SHA-256 over the UTF-8 bytes of the canonical SID
+string returned by Windows (for example, `S-1-5-21-...`). Both language
+implementations must use this exact encoding. The component must apply an
+explicit DACL for the current user and SYSTEM and must verify the connected
+client's token. The pipe name is not an authorization mechanism.
 
 ## Compatibility and privacy
 

@@ -495,10 +495,6 @@ fn validate_snapshot(snapshot: &StateSnapshot) -> Result<(), ProtocolError> {
         || snapshot
             .duration_ms
             .is_some_and(|duration| snapshot.position_ms > duration)
-        || (matches!(
-            snapshot.status,
-            PlaybackStatus::Playing | PlaybackStatus::Paused
-        ) && snapshot.track_id.is_none())
     {
         return Err(ProtocolError::invalid("invalid playback snapshot"));
     }
