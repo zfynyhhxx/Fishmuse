@@ -18,7 +18,7 @@ Resume Task 8 Step 1 after the pinned vcpkg dependency tool can obtain its requi
 
 ## Current blocker
 
-- vcpkg 2026.07.29 requires `cmake-4.4.0-windows-x86_64.zip`; the configured GitHub release download remained at zero bytes through the third distinct dependency repair.
+- vcpkg 2026.07.29 requires `cmake-4.4.0-windows-x86_64.zip`; after the third distinct dependency repair, no finalized archive exists. The canceled transfer left a 25,888,028-byte `.part` whose ZIP central directory is missing and whose SHA-512 (`2b7e880e...10371a1`) does not match vcpkg's pinned hash (`35479675...59e04d0`), so it is unusable.
 - Smallest unblock: place the official archive at `.deps/vcpkg/downloads/cmake-4.4.0-windows-x86_64.zip` (vcpkg verifies it), or make that GitHub release asset reachable through the host proxy, then rerun the Task 8 configure command.
 
 ## Required external gates

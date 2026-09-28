@@ -41,7 +41,7 @@ Append commands only when they were actually run. Record failures as failures; d
 
 - Commit or working state: clean `c124829` before adding uncommitted Task 8 test scaffolding.
 - Command: pinned vcpkg bootstrap at release `2026.07.29`; `cmake --preset windows-msvc -S native/foo-fishmuse` with manifest dependency `nlohmann-json`.
-- Result: FAIL before compilation. The first manifest configuration could not resolve the port tree from a shallow clone. Full-history and blobless-history repairs both stalled through the proxy. Using the pinned checkout's current port set bypassed history resolution, but vcpkg's required CMake 4.4 archive download remained at zero bytes.
+- Result: FAIL before compilation. The first manifest configuration could not resolve the port tree from a shallow clone. Full-history and blobless-history repairs both stalled through the proxy. Using the pinned checkout's current port set bypassed history resolution, but vcpkg's required CMake 4.4 archive did not finalize. The canceled transfer left a 25,888,028-byte `.part`; `ZipFile.OpenRead` reports `End of Central Directory record could not be found`, and its SHA-512 (`2b7e880e...10371a1`) differs from vcpkg's pinned value (`35479675...59e04d0`).
 - Evidence or follow-up: no Task 8 RED/GREEN claim and no Task 8 commit. Resume only after the official CMake archive is available to vcpkg; then confirm the intended missing-implementation RED before writing production C++.
 
 ## Entry format
