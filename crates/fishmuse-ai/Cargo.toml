@@ -1,0 +1,28 @@
+[package]
+name = "fishmuse-ai"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+async-trait = "0.1"
+async-stream = "0.3"
+fishmuse-domain = { path = "../fishmuse-domain" }
+futures-core = "0.3"
+futures-util = "0.3"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
+secrecy = "0.10"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+time = { version = "0.3", features = ["macros", "serde"] }
+tokio = { version = "1", features = ["sync", "time"] }
+url = "2"
+uuid = { version = "1", features = ["serde", "v7"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security_Credentials"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

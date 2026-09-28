@@ -107,7 +107,7 @@ Append commands only when they were actually run. Record failures as failures; d
 - Fresh public-boundary result: all 40 modified/untracked candidates were checked; no candidate binary, API key/private key pattern, supplied account email, machine-user absolute path, or installed-host path was present. SDK, host, DLL, WAV, profile, and build artifacts remain ignored.
 - Task 8 commit/publication: commit `85fc001` contains the 40-file Task 8 snapshot. GitHub API readback reported `zfynyhhxx/Fishmuse` as `PUBLIC`; remote branch `feature/fishmuse-v0.1-muse-loop` resolved to the exact local SHA `85fc001deb736a93355920ed2d0a01bd2b1a1e4b`.
 
-### 2026-09-29 — Task 9 Rust foobar client RED
+### 2026-09-29 – Task 9 Rust foobar client RED
 
 - Commit or working state: clean `85fc001` Task 8 baseline, then uncommitted Task 9 tests only.
 - RED command: pinned Rust 1.98.1 `cargo test -p fishmuse-playback --test foobar_client`.
@@ -121,6 +121,22 @@ Append commands only when they were actually run. Record failures as failures; d
 - Pre-commit review RED: an event sent immediately after the authoritative reconnect snapshot could be published before the first broadcast subscriber existed, and the backend supervisor lacked an awaitable transport shutdown. Focused regressions failed by timing out on the buffered event and by the missing `shutdown` API. The client now retains a bounded first receiver from channel creation; the supervisor observes shutdown while connecting, connected, or backing off, closes the active client, and converges its watch state before `shutdown().await` returns. A separate regression confirms the fake server observes pipe closure.
 - Final task-level command: pinned Rust 1.98.1 `cargo test -p fishmuse-playback`; `cargo clippy -p fishmuse-playback --all-targets -- -D warnings`; `cargo fmt --all -- --check`.
 - Final task-level result: PASS (36/36 playback tests, including client 3/3 and reconnect 5/5; zero clippy warnings/errors; zero fmt differences).
+
+### 2026-09-29 – Task 10 DeepSeek provider, credentials, and budget controls
+
+- Commit or working state: clean public `62adeb5` Task 9 baseline, then uncommitted Task 10 crate and workspace-member changes.
+- Streaming RED: `cargo test -p fishmuse-ai --test deepseek_fixtures` failed with unresolved provider event, error, decoder, and HTTP-classification imports. The first GREEN iterations also exposed dual `event`/`type` decoding and fixture blank-line handling; fixes retained strict sequence validation without accepting partial tool arguments.
+- Credential RED: `cargo test -p fishmuse-ai --test credential_store` failed with unresolved credential trait, Windows store, and configured-status imports. Fake save/overwrite/delete/missing and Debug redaction then passed 3/3 without touching system state.
+- Cost RED: `cargo test -p fishmuse-ai --test cost_policy` failed with unresolved pricing, micro-yuan, budget, and atomic-ledger imports. The implementation centralized all rates in a dated schedule and passed cache-hit, cache-miss, output, peak boundary, unknown usage, effective-date, rounding, live-test hard-stop, and concurrent accumulation checks.
+- Reversible Windows integration preflight: `cmdkey.exe /list:FishMuse/DeepSeek` reported `* NONE *`; no existing credential could be overwritten.
+- Explicit Windows integration command: `cargo test -p fishmuse-ai --test credential_store windows_credential_manager_round_trip_is_current_user_scoped -- --exact --ignored --nocapture`.
+- Explicit Windows integration result: PASS (1/1). A fake current-user Generic Credential was saved, read, overwritten, read, and deleted. Post-test `cmdkey.exe /list:FishMuse/DeepSeek` again reported `* NONE *`.
+- Task-level command: `cargo test -p fishmuse-ai`; `cargo clippy -p fishmuse-ai --all-targets -- -D warnings`; `cargo fmt --all -- --check`.
+- Pre-final verification repair: the first combined final command reported one rustfmt import-order difference and two strict Clippy `field_reassign_with_default` errors in the endpoint/model rejection test. The test now uses struct update syntax and the final commands were rerun independently so a later successful command cannot mask an earlier nonzero exit. Staged `git diff --check` then identified one redundant blank record at the end of four JSONL fixtures; those empty records were removed before the final staged check.
+- Task-level result: PASS (18 regular tests passed, 1 externally mutating test ignored by default but passed explicitly; zero clippy warnings/errors; zero fmt differences).
+- Secret-log check: captured complete regular test output in memory and searched for every fake-key sentinel; result `LOG_SECRET_SCAN: PASS`.
+- Public-boundary audit: all 23 commit candidates are source, fixture, lockfile, or documentation files; no binary, real API-key/private-key pattern, supplied account email, authorized foobar installation path, machine-user path, or workspace absolute path is present.
+- External gate note: no real DeepSeek API key was requested, loaded, or persisted, and no network request or billable spend occurred. Tier 4 remains a Task 15 live gate.
 
 ## Entry format
 

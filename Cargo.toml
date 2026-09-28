@@ -2,6 +2,7 @@
 members = [
     "apps/desktop/src-tauri",
     "crates/fishmuse-domain",
+    "crates/fishmuse-ai",
     "crates/fishmuse-library",
     "crates/fishmuse-playback",
     "crates/fishmuse-storage",

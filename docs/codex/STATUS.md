@@ -8,13 +8,13 @@ Last updated: 2026-09-29
 - Head before Task 7: `877d1ba chore(codex): add autonomous v0.1 workflow`
 - Working tree before Task 7: clean
 - Autonomous Codex configuration: prepared and structurally verified on 2026-09-28
-- Completed implementation tasks: Task 1–9
-- Current task: Task 10 Step 1, credential-storage and AI boundary RED preflight
-- Remaining implementation tasks: Task 10–15
+- Completed implementation tasks: Task 1–10
+- Current task: Task 11 Step 1, tool-registry RED preflight
+- Remaining implementation tasks: Task 11–15
 
 ## Next autonomous action
 
-Read the exact Task 10 plan and relevant credential/provider ports, then add the planned failing tests before production implementation. Do not use a real DeepSeek key or spend without the explicit live-gate authorization required by the plan.
+Read the exact Task 11 plan and existing domain/storage/playback ports, then add the planned failing tool-schema and confirmation-policy tests before production implementation. Do not use a real DeepSeek key or spend without the explicit live-gate authorization required by the plan.
 
 ## Current blocker
 
@@ -30,4 +30,4 @@ Read the exact Task 10 plan and relevant credential/provider ports, then add the
 
 ## Completion state
 
-V0.1 is not complete. Task 8 is complete and public. Task 9 adds a Tokio Windows Named Pipe client, bounded writer/correlation machinery, typed error mapping, reconnect supervisor, same-OperationId retry, injected local path resolver, session-aware monotonic reconciliation, startup-event buffering, and explicit transport shutdown. Focused tests, all 36 playback tests, strict all-target clippy, workspace fmt, staged diff, and public-boundary checks pass. Tasks 10–15 remain unfinished.
+V0.1 is not complete. Tasks 8 and 9 are complete and public. Task 10 adds the provider-neutral AI stream contract, allowlisted DeepSeek Responses client, strict SSE event sequencing, delayed tool-call release, current-user Windows Credential Manager storage, dated CNY pricing, and live-test-only budget hard stop. All 18 regular AI tests, the explicit reversible Windows credential round trip, strict all-target clippy, workspace fmt, secret-log scan, and public-boundary checks pass. No real DeepSeek credential or paid request was used. Tasks 11–15 remain unfinished.

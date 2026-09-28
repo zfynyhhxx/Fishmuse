@@ -1,0 +1,2 @@
+{"event":"response.output_text.delta","type":"response.output_text.delta","sequence_number":1,"delta":"first"}
+{"event":"response.output_text.delta","type":"response.output_text.delta","sequence_number":1,"delta":"duplicate"}
