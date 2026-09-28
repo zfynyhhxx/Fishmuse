@@ -126,3 +126,29 @@ fn ignores_duplicate_and_stale_revisions() {
     );
     assert_eq!(machine.snapshot(), &current);
 }
+
+#[test]
+fn paused_seek_can_transition_through_loading_back_to_paused() {
+    let track_id = TrackId::new();
+    let mut paused = snapshot(10, PlaybackStatus::Paused, 2_000);
+    paused.track_id = Some(track_id);
+    let mut machine = PlaybackStateMachine::new(paused).expect("paused state");
+    let mut loading = snapshot(11, PlaybackStatus::Loading, 2_000);
+    loading.track_id = Some(track_id);
+    let mut paused_again = snapshot(12, PlaybackStatus::Paused, 3_000);
+    paused_again.track_id = Some(track_id);
+
+    assert!(
+        machine
+            .apply(PlaybackEvent::Snapshot(loading))
+            .expect("paused to loading")
+    );
+    assert!(
+        machine
+            .apply(PlaybackEvent::Snapshot(paused_again))
+            .expect("loading back to paused")
+    );
+    assert_eq!(machine.snapshot().revision, 12);
+    assert_eq!(machine.snapshot().status, PlaybackStatus::Paused);
+    assert_eq!(machine.snapshot().track_id, Some(track_id));
+}

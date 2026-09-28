@@ -6,8 +6,9 @@ use std::sync::{
 use async_trait::async_trait;
 use fishmuse_domain::{AppResult, OperationId};
 use fishmuse_playback::{
-    MemoryOperationStore, PlaybackBackend, PlaybackBackendKind, PlaybackCommand, PlaybackEvent,
-    PlaybackManager, PlaybackSnapshot, PlaybackStatus,
+    CommandFingerprint, MemoryOperationStore, OperationClaim, OperationStore, PlaybackBackend,
+    PlaybackBackendKind, PlaybackCommand, PlaybackEvent, PlaybackManager, PlaybackSnapshot,
+    PlaybackStatus,
 };
 use tokio::sync::{Notify, broadcast};
 
@@ -72,6 +73,45 @@ impl PlaybackBackend for FakePlaybackBackend {
 
 fn pause(operation_id: OperationId) -> PlaybackCommand {
     PlaybackCommand::Pause { operation_id }
+}
+
+struct BlockingOperationStore {
+    inner: MemoryOperationStore,
+    claim_started: Notify,
+    release_claim: Notify,
+}
+
+impl BlockingOperationStore {
+    fn new() -> Arc<Self> {
+        Arc::new(Self {
+            inner: MemoryOperationStore::new(),
+            claim_started: Notify::new(),
+            release_claim: Notify::new(),
+        })
+    }
+}
+
+#[async_trait]
+impl OperationStore for BlockingOperationStore {
+    async fn try_begin(
+        &self,
+        operation_id: OperationId,
+        command_fingerprint: CommandFingerprint,
+    ) -> AppResult<OperationClaim> {
+        self.claim_started.notify_one();
+        self.release_claim.notified().await;
+        self.inner
+            .try_begin(operation_id, command_fingerprint)
+            .await
+    }
+
+    async fn complete(
+        &self,
+        operation_id: OperationId,
+        result: &AppResult<PlaybackSnapshot>,
+    ) -> AppResult<()> {
+        self.inner.complete(operation_id, result).await
+    }
 }
 
 #[tokio::test]
@@ -159,5 +199,49 @@ async fn caller_timeout_does_not_cancel_persistence_and_retry_reads_result() {
         .await
         .expect("saved result");
     assert_eq!(retry.status, PlaybackStatus::Paused);
+    assert_eq!(backend.executions.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test(start_paused = true)]
+async fn cancellation_before_durable_claim_does_not_strand_followers() {
+    let backend = FakePlaybackBackend::immediate();
+    let store = BlockingOperationStore::new();
+    let manager = PlaybackManager::new(backend.clone(), store.clone());
+    let operation_id = OperationId::new();
+
+    let first = tokio::spawn({
+        let manager = manager.clone();
+        async move { manager.execute(pause(operation_id)).await }
+    });
+    store.claim_started.notified().await;
+    first.abort();
+    assert!(
+        first
+            .await
+            .expect_err("caller was cancelled")
+            .is_cancelled()
+    );
+
+    let retry = tokio::spawn({
+        let manager = manager.clone();
+        async move {
+            tokio::time::timeout(
+                std::time::Duration::from_secs(1),
+                manager.execute(pause(operation_id)),
+            )
+            .await
+        }
+    });
+    tokio::task::yield_now().await;
+    store.release_claim.notify_waiters();
+    tokio::task::yield_now().await;
+    tokio::time::advance(std::time::Duration::from_secs(1)).await;
+
+    let result = retry
+        .await
+        .expect("retry task")
+        .expect("retry must not wait forever")
+        .expect("leader result");
+    assert_eq!(result.status, PlaybackStatus::Paused);
     assert_eq!(backend.executions.load(Ordering::SeqCst), 1);
 }

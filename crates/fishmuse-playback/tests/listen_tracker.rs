@@ -25,6 +25,11 @@ impl TestClock {
         let mut now = self.0.lock().expect("clock lock");
         *now += Duration::seconds(seconds);
     }
+
+    fn advance_milliseconds(&self, milliseconds: i64) {
+        let mut now = self.0.lock().expect("clock lock");
+        *now += Duration::milliseconds(milliseconds);
+    }
 }
 
 impl Clock for TestClock {
@@ -329,4 +334,109 @@ async fn failed_sink_write_does_not_consume_the_event_revision() {
             .expect("same revision retries")
     );
     assert_eq!(sink.events.lock().expect("events lock").len(), 1);
+}
+
+#[tokio::test]
+async fn same_track_loading_pauses_time_and_playing_resumes_the_same_listen() {
+    let clock = TestClock::at(1_800_000_000);
+    let sink = MemorySink::default();
+    let track_id = TrackId::new();
+    let mut tracker = ListenTracker::start(sink.clone(), clock.clone())
+        .await
+        .expect("tracker");
+
+    tracker
+        .handle(event(
+            1,
+            PlaybackStatus::Playing,
+            Some(track_id),
+            Some(100_000),
+        ))
+        .await
+        .expect("play");
+    clock.advance_seconds(10);
+    tracker
+        .handle(event(
+            2,
+            PlaybackStatus::Loading,
+            Some(track_id),
+            Some(100_000),
+        ))
+        .await
+        .expect("loading");
+    clock.advance_seconds(30);
+    tracker
+        .handle(event(
+            3,
+            PlaybackStatus::Playing,
+            Some(track_id),
+            Some(100_000),
+        ))
+        .await
+        .expect("resume");
+    clock.advance_seconds(5);
+    tracker
+        .handle(event(4, PlaybackStatus::Stopped, None, None))
+        .await
+        .expect("stop");
+
+    let completed = final_for(&sink, track_id);
+    assert_eq!(completed.listened_ms, 15_000);
+    let ids: Vec<_> = sink
+        .events
+        .lock()
+        .expect("events lock")
+        .iter()
+        .filter(|event| event.track_id == track_id)
+        .map(|event| event.id)
+        .collect();
+    assert!(ids.iter().all(|id| *id == ids[0]));
+}
+
+#[tokio::test]
+async fn terminal_duration_is_merged_before_exact_completion_threshold() {
+    let clock = TestClock::at(1_800_000_000);
+    let sink = MemorySink::default();
+    let below = TrackId::new();
+    let exact = TrackId::new();
+    let mut tracker = ListenTracker::start(sink.clone(), clock.clone())
+        .await
+        .expect("tracker");
+
+    tracker
+        .handle(event(1, PlaybackStatus::Playing, Some(below), None))
+        .await
+        .expect("below play");
+    clock.advance_milliseconds(49_999);
+    tracker
+        .handle(event(
+            2,
+            PlaybackStatus::Stopped,
+            Some(below),
+            Some(100_000),
+        ))
+        .await
+        .expect("below stop");
+
+    tracker
+        .handle(event(3, PlaybackStatus::Playing, Some(exact), None))
+        .await
+        .expect("exact play");
+    clock.advance_milliseconds(50_000);
+    tracker
+        .handle(event(
+            4,
+            PlaybackStatus::Stopped,
+            Some(exact),
+            Some(100_000),
+        ))
+        .await
+        .expect("exact stop");
+
+    let below_event = final_for(&sink, below);
+    assert_eq!(below_event.listened_ms, 49_999);
+    assert!(!below_event.completed);
+    let exact_event = final_for(&sink, exact);
+    assert_eq!(exact_event.listened_ms, 50_000);
+    assert!(exact_event.completed);
 }

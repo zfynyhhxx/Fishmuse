@@ -126,15 +126,27 @@ where
                     self.settle(now, false).await?;
                 }
             }
-            PlaybackStatus::Stopped => self.settle(now, false).await?,
-            PlaybackStatus::Unavailable => self.settle(now, true).await?,
+            PlaybackStatus::Stopped => {
+                self.merge_terminal_duration(snapshot.track_id, snapshot.duration_ms);
+                self.settle(now, false).await?;
+            }
+            PlaybackStatus::Unavailable => {
+                self.merge_terminal_duration(snapshot.track_id, snapshot.duration_ms);
+                self.settle(now, true).await?;
+            }
             PlaybackStatus::Loading => {
                 if self.active.as_ref().is_some_and(|active| {
                     snapshot
                         .track_id
-                        .is_none_or(|track_id| track_id != active.track_id)
+                        .is_some_and(|track_id| track_id != active.track_id)
                 }) {
                     self.settle(now, false).await?;
+                } else if self.active.is_some() {
+                    self.pause(now);
+                    if let Some(active) = &mut self.active {
+                        active.duration_ms = snapshot.duration_ms.or(active.duration_ms);
+                    }
+                    self.persist_active(None, false).await?;
                 }
             }
         }
@@ -156,6 +168,15 @@ where
         active.listened_ms = active
             .listened_ms
             .saturating_add(elapsed_ms(running_since, now));
+    }
+
+    fn merge_terminal_duration(&mut self, track_id: Option<TrackId>, duration_ms: Option<u64>) {
+        let Some(active) = &mut self.active else {
+            return;
+        };
+        if track_id.is_none_or(|track_id| track_id == active.track_id) {
+            active.duration_ms = duration_ms.or(active.duration_ms);
+        }
     }
 
     fn pause(&mut self, now: OffsetDateTime) {

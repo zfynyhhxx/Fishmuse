@@ -65,55 +65,47 @@ impl PlaybackManager {
         };
 
         if leader {
-            match self.operations.try_begin(operation_id, fingerprint).await {
-                Ok(OperationClaim::Acquired) => self.spawn_leader(operation_id, command, &entry),
-                Ok(OperationClaim::Completed(snapshot)) => {
-                    self.publish(operation_id, &entry, Ok(snapshot)).await;
-                }
-                Ok(OperationClaim::Conflict) => {
-                    self.publish(operation_id, &entry, Err(operation_conflict()))
-                        .await;
-                }
-                Ok(OperationClaim::InFlight) => {
-                    self.publish(operation_id, &entry, Err(operation_in_flight()))
-                        .await;
-                }
-                Err(error) => self.publish(operation_id, &entry, Err(error)).await,
-            }
+            self.spawn_lifecycle(operation_id, command, entry.clone());
         }
 
         wait_for_outcome(&entry).await
     }
 
-    fn spawn_leader(
+    fn spawn_lifecycle(
         &self,
         operation_id: OperationId,
         command: PlaybackCommand,
-        entry: &Arc<InFlight>,
+        entry: Arc<InFlight>,
     ) {
         let backend = self.backend.clone();
         let operations = self.operations.clone();
         let in_flight = self.in_flight.clone();
-        let entry = entry.clone();
         tokio::spawn(async move {
-            let backend_result = backend.execute(command).await;
-            let outcome = match operations.complete(operation_id, &backend_result).await {
-                Ok(()) => backend_result,
-                Err(error) => Err(error),
+            let worker = tokio::spawn(async move {
+                match operations
+                    .try_begin(operation_id, command.fingerprint())
+                    .await
+                {
+                    Ok(OperationClaim::Acquired) => {
+                        let backend_result = backend.execute(command).await;
+                        match operations.complete(operation_id, &backend_result).await {
+                            Ok(()) => backend_result,
+                            Err(error) => Err(error),
+                        }
+                    }
+                    Ok(OperationClaim::Completed(snapshot)) => Ok(snapshot),
+                    Ok(OperationClaim::Conflict) => Err(operation_conflict()),
+                    Ok(OperationClaim::InFlight) => Err(operation_in_flight()),
+                    Err(error) => Err(error),
+                }
+            });
+            let outcome = match worker.await {
+                Ok(outcome) => outcome,
+                Err(_) => Err(operation_lifecycle_failed()),
             };
             entry.outcome.send_replace(Some(outcome));
             in_flight.lock().await.remove(&operation_id);
         });
-    }
-
-    async fn publish(
-        &self,
-        operation_id: OperationId,
-        entry: &InFlight,
-        result: AppResult<PlaybackSnapshot>,
-    ) {
-        entry.outcome.send_replace(Some(result));
-        self.in_flight.lock().await.remove(&operation_id);
     }
 }
 
@@ -148,6 +140,17 @@ fn operation_in_flight() -> AppError {
         user_message: "operation_in_flight".to_owned(),
         retryable: true,
         suggested_action: Some("retry_later".to_owned()),
+        technical_context: None,
+    }
+}
+
+fn operation_lifecycle_failed() -> AppError {
+    AppError {
+        code: ErrorCode::Internal,
+        category: ErrorCategory::Playback,
+        user_message: "playback_operation_failed".to_owned(),
+        retryable: true,
+        suggested_action: Some("refresh_playback_state".to_owned()),
         technical_context: None,
     }
 }

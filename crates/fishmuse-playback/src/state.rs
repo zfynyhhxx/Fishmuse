@@ -116,6 +116,7 @@ fn valid_transition(current: PlaybackStatus, next: PlaybackStatus) -> bool {
             (PlaybackStatus::Stopped, PlaybackStatus::Loading)
                 | (PlaybackStatus::Stopped, PlaybackStatus::Unavailable)
                 | (PlaybackStatus::Loading, PlaybackStatus::Playing)
+                | (PlaybackStatus::Loading, PlaybackStatus::Paused)
                 | (PlaybackStatus::Loading, PlaybackStatus::Stopped)
                 | (PlaybackStatus::Loading, PlaybackStatus::Unavailable)
                 | (PlaybackStatus::Playing, PlaybackStatus::Paused)
