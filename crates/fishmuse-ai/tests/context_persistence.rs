@@ -5,13 +5,57 @@ use fishmuse_ai::{
     AIUsage, AgentStore, AgentToolResult, AgentTurnRecord, AgentTurnStatus, ConversationAgentStore,
 };
 use fishmuse_domain::{AppResult, ConversationId, UserId};
-use fishmuse_storage::{ConversationMessage, ConversationRepository};
+use fishmuse_storage::{
+    ConversationMessage, ConversationRepository, Database, SqliteConversationRepository,
+};
 use time::macros::datetime;
 use uuid::Uuid;
 
 #[derive(Default)]
 struct FakeConversationRepository {
     messages: Mutex<Vec<(String, String)>>,
+}
+
+fn turn_record(user_id: UserId, conversation_id: ConversationId, text: &str) -> AgentTurnRecord {
+    AgentTurnRecord {
+        user_id,
+        conversation_id,
+        user_text: text.to_owned(),
+        assistant_text: format!("answer to {text}"),
+        tool_results: Vec::new(),
+        status: AgentTurnStatus::Completed,
+        usage: None,
+        provider: "deepseek".to_owned(),
+        model: "deepseek-flash".to_owned(),
+        occurred_at: datetime!(2026-09-30 00:00 UTC),
+    }
+}
+
+#[tokio::test]
+async fn first_turn_creates_conversation_and_later_turn_reuses_it() {
+    let database = Database::open_in_memory().await.expect("database");
+    let user_id = database.ensure_local_user().await.expect("local user");
+    let conversation_id = ConversationId::new();
+    let repository = Arc::new(SqliteConversationRepository::new(
+        database.pool().clone(),
+        user_id,
+    ));
+    let store = ConversationAgentStore::new(repository);
+
+    store
+        .save_turn(turn_record(user_id, conversation_id, "first"))
+        .await
+        .expect("first turn creates its parent conversation");
+    store
+        .save_turn(turn_record(user_id, conversation_id, "second"))
+        .await
+        .expect("later turn reuses its parent conversation");
+
+    let messages = store
+        .load_context(conversation_id)
+        .await
+        .expect("saved context");
+    assert_eq!(messages.len(), 4);
 }
 
 #[async_trait]

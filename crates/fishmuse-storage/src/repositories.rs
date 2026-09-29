@@ -610,7 +610,11 @@ impl SqliteConversationRepository {
 #[async_trait]
 impl ConversationRepository for SqliteConversationRepository {
     async fn create(&self, id: ConversationId, title: Option<&str>) -> AppResult<()> {
-        sqlx::query("INSERT INTO conversations(conversation_id, user_id, title, created_at) VALUES (?, ?, ?, ?)")
+        sqlx::query(
+            "INSERT INTO conversations(conversation_id, user_id, title, created_at) \
+             VALUES (?, ?, ?, ?) \
+             ON CONFLICT(conversation_id) DO NOTHING",
+        )
             .bind(id.as_uuid().to_string())
             .bind(self.user_id.as_uuid().to_string())
             .bind(title)

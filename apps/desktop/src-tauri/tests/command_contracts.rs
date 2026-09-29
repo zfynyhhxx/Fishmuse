@@ -5,9 +5,10 @@ use std::sync::{
 
 use async_trait::async_trait;
 use fishmuse_ai::{
-    AI_APPLICATION_CONTRACT_VERSION, AIApplicationEvent, AIEventEnvelope, AIService,
-    AIServiceState, AIServiceStatus, AIServiceTurn, AIServiceTurnRequest, AITurnId,
-    CredentialStore, ProviderId, ServiceImplementation as AIImplementation,
+    AI_APPLICATION_CONTRACT_VERSION, AIApplicationEvent, AIApplicationFailureReason,
+    AIEventEnvelope, AIService, AIServiceState, AIServiceStatus, AIServiceTurn,
+    AIServiceTurnRequest, AITurnId, CredentialStore, ProviderId,
+    ServiceImplementation as AIImplementation,
 };
 use fishmuse_desktop::{
     error::CommandError,
@@ -311,6 +312,35 @@ impl AIService for FakeAI {
     }
 }
 
+struct StorageFailureAI;
+
+impl AIService for StorageFailureAI {
+    fn state(&self) -> AIServiceState {
+        AIServiceState {
+            status: AIServiceStatus::Ready,
+            implementation: Some(AIImplementation {
+                id: "fake".to_owned(),
+                display_name: "Fake AI".to_owned(),
+            }),
+        }
+    }
+
+    fn start_turn(&self, _request: AIServiceTurnRequest) -> AIServiceTurn {
+        let turn_id = AITurnId::new();
+        AIServiceTurn {
+            turn_id,
+            events: Box::pin(stream::iter(vec![Err(AppError {
+                code: ErrorCode::StorageFailure,
+                category: ErrorCategory::Storage,
+                user_message: "The response could not be saved.".to_owned(),
+                retryable: true,
+                suggested_action: None,
+                technical_context: Some("foreign key".to_owned()),
+            })])),
+        }
+    }
+}
+
 #[derive(Default)]
 struct MemoryCredentials(Mutex<bool>);
 
@@ -449,6 +479,47 @@ async fn fake_services_preserve_events_cancellation_and_shutdown_contracts() {
         state.shutdown_steps().await,
         vec!["ai_turns", "scans", "playback", "database"]
     );
+}
+
+#[tokio::test]
+async fn ai_storage_failure_is_not_reported_as_a_music_tool_failure() {
+    let (state, events, _, _) = test_state(Arc::new(StorageFailureAI)).await;
+    state
+        .start_ai_turn(StartTurnDto {
+            conversation_id: ConversationId::new(),
+            user_text: "hello".to_owned(),
+            context: None,
+        })
+        .await
+        .expect("start AI turn");
+
+    for _ in 0..20 {
+        if events.events().iter().any(|event| {
+            matches!(
+                event,
+                ApplicationEvent::Ai(AIEventEnvelope {
+                    event: AIApplicationEvent::TurnFailed { .. },
+                    ..
+                })
+            )
+        }) {
+            break;
+        }
+        tokio::task::yield_now().await;
+    }
+
+    assert!(events.events().iter().any(|event| {
+        matches!(
+            event,
+            ApplicationEvent::Ai(AIEventEnvelope {
+                event: AIApplicationEvent::TurnFailed {
+                    reason: AIApplicationFailureReason::Provider,
+                },
+                ..
+            })
+        )
+    }));
+    state.shutdown().await;
 }
 
 #[tokio::test]

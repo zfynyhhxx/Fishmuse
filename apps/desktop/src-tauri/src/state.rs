@@ -548,10 +548,11 @@ impl AppState {
                     let _ = self.events.emit(ApplicationEvent::Ai(event));
                 }
                 Err(error) => {
-                    let reason = if error.category == ErrorCategory::Ai {
-                        AIApplicationFailureReason::Provider
-                    } else {
-                        AIApplicationFailureReason::Tool
+                    let reason = match error.category {
+                        ErrorCategory::Library | ErrorCategory::Playback => {
+                            AIApplicationFailureReason::Tool
+                        }
+                        _ => AIApplicationFailureReason::Provider,
                     };
                     let _ = self.events.emit(ApplicationEvent::Ai(AIEventEnvelope {
                         contract_version: AI_APPLICATION_CONTRACT_VERSION,
