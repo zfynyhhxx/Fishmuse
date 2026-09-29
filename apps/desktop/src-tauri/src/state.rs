@@ -370,10 +370,7 @@ impl AppState {
         } else {
             PlaybackServiceStatus::Ready
         };
-        self.playback_state.send_replace(PlaybackServiceState {
-            status,
-            implementation: self.playback_state.borrow().implementation.clone(),
-        });
+        replace_playback_service_status(&self.playback_state, status);
         let _ = self
             .events
             .emit(ApplicationEvent::PlaybackState(snapshot.into()));
@@ -848,5 +845,38 @@ pub fn default_playback_state() -> PlaybackServiceState {
             id: "foobar2000".to_owned(),
             display_name: "foobar2000".to_owned(),
         }),
+    }
+}
+
+fn replace_playback_service_status(
+    state: &watch::Sender<PlaybackServiceState>,
+    status: PlaybackServiceStatus,
+) {
+    let implementation = { state.borrow().implementation.clone() };
+    state.send_replace(PlaybackServiceState {
+        status,
+        implementation,
+    });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn playback_service_state_replace_releases_read_borrow_before_write() {
+        let implementation = PlaybackImplementation {
+            id: "foobar2000".to_owned(),
+            display_name: "foobar2000".to_owned(),
+        };
+        let (state, _) = watch::channel(PlaybackServiceState {
+            status: PlaybackServiceStatus::Disconnected,
+            implementation: Some(implementation.clone()),
+        });
+
+        replace_playback_service_status(&state, PlaybackServiceStatus::Ready);
+
+        assert_eq!(state.borrow().status, PlaybackServiceStatus::Ready);
+        assert_eq!(state.borrow().implementation, Some(implementation));
     }
 }
