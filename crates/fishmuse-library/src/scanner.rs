@@ -28,8 +28,8 @@ use tokio_util::sync::CancellationToken;
 
 use crate::file_identity::{canonicalize_roots, visit_files_from_canonical_roots};
 use crate::{
-    DiagnosticCode, ExtensionDisposition, FileIdentity, TagReader, classify_extension,
-    normalize_path_bytes,
+    DiagnosticCode, ExtensionDisposition, FileIdentity, LocalImport, LocalLibraryImporter,
+    ParsedTags, TagReader, classify_extension, normalize_path_bytes,
 };
 
 const DEFAULT_BATCH_SIZE: usize = 32;
@@ -108,6 +108,7 @@ impl<R: TagReader> LibraryScanner<R> {
         progress: Sender<ScanProgress>,
     ) -> AppResult<ScanSummary> {
         let repository = SqliteScanRepository::new(self.pool.clone(), request.user_id);
+        let importer = LocalLibraryImporter::new(self.pool.clone(), request.user_id);
         let scan_id = repository.begin_scan().await?;
         if request.roots.is_empty() {
             repository
@@ -278,10 +279,10 @@ impl<R: TagReader> LibraryScanner<R> {
                 break;
             };
             match result {
-                ProcessedFile::Parsed(asset) => {
+                ProcessedFile::Parsed(parsed) => {
+                    importer.import(parsed.local_import).await?;
                     state.parsed += 1;
-                    seen_asset_ids.insert(asset.media_asset_id);
-                    assets.push(asset);
+                    seen_asset_ids.insert(parsed.media_asset_id);
                 }
                 ProcessedFile::Unchanged {
                     media_asset_id,
@@ -496,8 +497,13 @@ impl ExistingAssets {
     }
 }
 
+struct ParsedFile {
+    media_asset_id: MediaAssetId,
+    local_import: LocalImport,
+}
+
 enum ProcessedFile {
-    Parsed(MediaAssetWrite),
+    Parsed(ParsedFile),
     Unchanged {
         media_asset_id: MediaAssetId,
         write: Option<MediaAssetWrite>,
@@ -580,8 +586,10 @@ async fn process_file<R: TagReader>(
             );
         }
     };
-    if let Some(asset) = same_path
-        .filter(|asset| asset.full.as_deref() == Some(identity.content_fingerprint.as_str()))
+    if let Some(asset) = same_path.filter(|asset| {
+        asset.stored.projected
+            && asset.full.as_deref() == Some(identity.content_fingerprint.as_str())
+    })
     {
         let write = (asset.stored.availability != "available"
             || asset.quick.as_deref() != Some(identity.quick_fingerprint.as_str()))
@@ -605,7 +613,7 @@ async fn process_file<R: TagReader>(
     drop(identity_turn);
 
     match tag_reader.read(&path).await {
-        Ok(_tags) => ProcessedFile::Parsed(asset_write(media_asset_id, &path, &identity)),
+        Ok(tags) => ProcessedFile::Parsed(parsed_file(media_asset_id, &path, &identity, tags)),
         Err(failure) => failed_file(
             ScanDiagnosticWrite {
                 path: Some(native_path_bytes(&path)),
@@ -614,6 +622,25 @@ async fn process_file<R: TagReader>(
             },
             existing_media_asset_id,
         ),
+    }
+}
+
+fn parsed_file(
+    media_asset_id: MediaAssetId,
+    path: &Path,
+    identity: &FileIdentity,
+    tags: ParsedTags,
+) -> ParsedFile {
+    let asset = asset_write(media_asset_id, path, identity);
+    ParsedFile {
+        media_asset_id,
+        local_import: LocalImport {
+            media_asset_id,
+            normalized_path: asset.normalized_path,
+            original_path: asset.original_path,
+            content_fingerprint: asset.identity,
+            tags,
+        },
     }
 }
 

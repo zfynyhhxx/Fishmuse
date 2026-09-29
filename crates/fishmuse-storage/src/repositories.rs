@@ -36,6 +36,7 @@ pub struct StoredMediaAsset {
     pub original_path: Vec<u8>,
     pub identity: Option<String>,
     pub availability: String,
+    pub projected: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -117,7 +118,7 @@ impl ScanRepository for SqliteScanRepository {
 
     async fn list_assets(&self) -> AppResult<Vec<StoredMediaAsset>> {
         let rows = sqlx::query(
-            "SELECT media_asset_id, normalized_path, original_path, content_fingerprint, availability FROM media_assets WHERE user_id = ?",
+            "SELECT media_asset_id, normalized_path, original_path, content_fingerprint, availability, track_id IS NOT NULL AS projected FROM media_assets WHERE user_id = ?",
         )
         .bind(self.user_text())
         .fetch_all(&self.pool)
@@ -133,6 +134,7 @@ impl ScanRepository for SqliteScanRepository {
                     original_path: row.try_get("original_path").map_err(db_error)?,
                     identity: row.try_get("content_fingerprint").map_err(db_error)?,
                     availability: row.try_get("availability").map_err(db_error)?,
+                    projected: row.try_get::<i64, _>("projected").map_err(db_error)? != 0,
                 })
             })
             .collect()

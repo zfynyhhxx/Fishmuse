@@ -38,6 +38,7 @@ afterEach(() => {
 });
 
 beforeEach(() => {
+  vi.clearAllMocks();
   localStorage.setItem("fishmuse.onboarding.complete", "true");
   window.history.replaceState({}, "", "#/library");
   vi.mocked(getAppStatus).mockResolvedValue({
@@ -163,5 +164,37 @@ describe("local library", () => {
       });
     });
     expect(JSON.stringify(vi.mocked(executePlayback).mock.calls)).not.toMatch(/[A-Z]:\\/);
+  });
+
+  it("refreshes the current query when a scan completes", async () => {
+    vi.useFakeTimers();
+    let publishProgress: Parameters<typeof listenForScanProgress>[0] | undefined;
+    vi.mocked(listenForScanProgress).mockImplementation(async (listener) => {
+      publishProgress = listener;
+      return () => undefined;
+    });
+    vi.mocked(searchLibrary)
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        track("01999999-9999-7999-8999-999999999981", "Newly Scanned"),
+      ]);
+
+    render(<App />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(300); });
+    expect(screen.getByText("No tracks found")).toBeTruthy();
+
+    act(() => publishProgress?.({
+      scan_id: "01999999-9999-7999-8999-999999999990",
+      discovered: 1,
+      parsed: 1,
+      unchanged: 0,
+      failed: 0,
+      status: "completed",
+      error: null,
+    }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(300); });
+
+    expect(screen.getByText("Newly Scanned")).toBeTruthy();
+    expect(searchLibrary).toHaveBeenCalledTimes(2);
   });
 });

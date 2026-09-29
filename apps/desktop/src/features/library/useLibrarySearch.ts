@@ -5,7 +5,7 @@ import { searchLibrary } from "../../lib/ipc";
 
 const PAGE_SIZE = 100;
 
-export function useLibrarySearch() {
+export function useLibrarySearch(refreshToken: string | null = null) {
   const [query, setQuery] = useState("");
   const [tracks, setTracks] = useState<TrackSummary[]>([]);
   const [loading, setLoading] = useState(true);
@@ -34,7 +34,7 @@ export function useLibrarySearch() {
         });
     }, 300);
     return () => window.clearTimeout(timer);
-  }, [query]);
+  }, [query, refreshToken]);
 
   const loadMore = async () => {
     const requestId = request.current;

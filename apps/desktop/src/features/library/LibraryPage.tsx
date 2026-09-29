@@ -9,8 +9,11 @@ import { TrackTable } from "./TrackTable";
 import { useLibrarySearch } from "./useLibrarySearch";
 
 export function LibraryPage() {
-  const { query, setQuery, tracks, loading, loadingMore, hasMore, loadMore, error } = useLibrarySearch();
   const { scanProgress } = useAppStore();
+  const completedScan = scanProgress && scanProgress.status !== "running"
+    ? `${scanProgress.scan_id}:${scanProgress.status}`
+    : null;
+  const { query, setQuery, tracks, loading, loadingMore, hasMore, loadMore, error } = useLibrarySearch(completedScan);
   const [actionError, setActionError] = useState<string | null>(null);
 
   const scan = async () => {

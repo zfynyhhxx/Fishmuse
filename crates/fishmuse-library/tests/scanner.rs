@@ -14,10 +14,10 @@ use async_trait::async_trait;
 use filetime::FileTime;
 use fishmuse_domain::{ErrorCategory, MediaAssetId, ScanId};
 use fishmuse_library::{
-    DiagnosticCode, LibraryScanner, ParsedTags, QuickFileIdentity, ScanFailure, ScanProgress,
-    ScanRequest, ScanStatus, TagReader,
+    DiagnosticCode, LibraryQueryPort, LibraryScanner, ParsedTags, QuickFileIdentity, ScanFailure,
+    ScanProgress, ScanRequest, ScanStatus, SearchQuery, TagReader,
 };
-use fishmuse_storage::Database;
+use fishmuse_storage::{Database, SqliteLibraryRepository};
 use tempfile::tempdir;
 use tokio::sync::{mpsc, watch};
 use tokio_util::sync::CancellationToken;
@@ -170,6 +170,22 @@ async fn first_scan_persists_assets_cue_diagnostics_and_ignores_unknown_extensio
     .await
     .expect("asset count");
     assert_eq!(asset_count, 1);
+    let library = SqliteLibraryRepository::new(database.pool().clone(), user_id);
+    let tracks = library
+        .search(
+            user_id,
+            SearchQuery {
+                text: "song".to_owned(),
+                artist: None,
+                release: None,
+                limit: 20,
+                offset: 0,
+            },
+        )
+        .await
+        .expect("search projected tracks");
+    assert_eq!(tracks.len(), 1);
+    assert_eq!(tracks[0].title, "song.MP3");
     let diagnostic_code: String = sqlx::query_scalar(
         "SELECT code FROM scan_diagnostics WHERE user_id = ? ORDER BY created_at LIMIT 1",
     )
@@ -178,6 +194,59 @@ async fn first_scan_persists_assets_cue_diagnostics_and_ignores_unknown_extensio
     .await
     .expect("cue diagnostic");
     assert_eq!(diagnostic_code, "unsupported_cue");
+}
+
+#[tokio::test]
+async fn matching_legacy_asset_without_track_projection_is_repaired() {
+    let (database, user_id) = setup().await;
+    let directory = tempdir().expect("temporary directory");
+    let path = directory.path().join("legacy.flac");
+    fixture(&path, b"generated legacy fixture");
+    let identity = fishmuse_library::FileIdentity::read(&path).expect("file identity");
+    let stored_identity = format!(
+        "q:{}|f:{}",
+        identity.quick_fingerprint, identity.content_fingerprint
+    );
+    let media_asset_id = MediaAssetId::new();
+    sqlx::query(
+        "INSERT INTO media_assets(media_asset_id, user_id, track_id, normalized_path, original_path, content_fingerprint, availability) VALUES (?, ?, NULL, ?, ?, ?, 'available')",
+    )
+    .bind(media_asset_id.as_uuid().to_string())
+    .bind(user_id.as_uuid().to_string())
+    .bind(fishmuse_library::normalize_path_bytes(&path))
+    .bind(b"legacy-native-path".as_slice())
+    .bind(stored_identity)
+    .execute(database.pool())
+    .await
+    .expect("legacy unprojected asset");
+    let reader = FakeTagReader::successful();
+    let scanner = LibraryScanner::new(database.pool().clone(), reader.clone());
+    let (progress, _receiver) = progress_channel();
+
+    let summary = scanner
+        .scan(
+            ScanRequest {
+                user_id,
+                roots: vec![directory.path().to_path_buf()],
+            },
+            CancellationToken::new(),
+            progress,
+        )
+        .await
+        .expect("repair scan");
+
+    assert_eq!(summary.parsed, 1);
+    assert_eq!(summary.unchanged, 0);
+    assert_eq!(reader.call_count(), 1);
+    let projected_track: Option<String> = sqlx::query_scalar(
+        "SELECT track_id FROM media_assets WHERE user_id = ? AND media_asset_id = ?",
+    )
+    .bind(user_id.as_uuid().to_string())
+    .bind(media_asset_id.as_uuid().to_string())
+    .fetch_one(database.pool())
+    .await
+    .expect("repaired asset");
+    assert!(projected_track.is_some());
 }
 
 #[tokio::test]
