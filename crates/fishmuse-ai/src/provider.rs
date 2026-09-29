@@ -98,11 +98,19 @@ pub struct AITool {
     pub parameters: Value,
 }
 
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct AIToolOutput {
+    pub call_id: String,
+    pub output: String,
+}
+
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct AIRequest {
     pub instructions: Option<String>,
     pub messages: Vec<AIMessage>,
     pub tools: Vec<AITool>,
+    pub previous_response_id: Option<String>,
+    pub tool_outputs: Vec<AIToolOutput>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

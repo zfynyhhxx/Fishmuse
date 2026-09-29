@@ -1,6 +1,6 @@
 use serde::Serialize;
 
-use crate::{AIRequest, AITool};
+use crate::{AIMessage, AIRequest, AITool, AIToolOutput};
 
 #[derive(Serialize)]
 pub(super) struct DeepSeekRequest<'a> {
@@ -9,7 +9,9 @@ pub(super) struct DeepSeekRequest<'a> {
     reasoning: Reasoning,
     #[serde(skip_serializing_if = "Option::is_none")]
     instructions: &'a Option<String>,
-    input: &'a [crate::AIMessage],
+    #[serde(skip_serializing_if = "Option::is_none")]
+    previous_response_id: &'a Option<String>,
+    input: Vec<DeepSeekInput<'a>>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     tools: Vec<DeepSeekTool<'a>>,
 }
@@ -28,6 +30,21 @@ struct DeepSeekTool<'a> {
     parameters: &'a serde_json::Value,
 }
 
+#[derive(Serialize)]
+#[serde(untagged)]
+enum DeepSeekInput<'a> {
+    Message(&'a AIMessage),
+    ToolOutput(DeepSeekToolOutput<'a>),
+}
+
+#[derive(Serialize)]
+struct DeepSeekToolOutput<'a> {
+    #[serde(rename = "type")]
+    kind: &'static str,
+    call_id: &'a str,
+    output: &'a str,
+}
+
 impl<'a> DeepSeekRequest<'a> {
     pub(super) fn new(model: &'a str, request: &'a AIRequest) -> Self {
         Self {
@@ -35,8 +52,31 @@ impl<'a> DeepSeekRequest<'a> {
             stream: true,
             reasoning: Reasoning { effort: "none" },
             instructions: &request.instructions,
-            input: &request.messages,
+            previous_response_id: &request.previous_response_id,
+            input: if request.previous_response_id.is_some() {
+                request
+                    .tool_outputs
+                    .iter()
+                    .map(|output| DeepSeekInput::ToolOutput(DeepSeekToolOutput::from(output)))
+                    .collect()
+            } else {
+                request
+                    .messages
+                    .iter()
+                    .map(DeepSeekInput::Message)
+                    .collect()
+            },
             tools: request.tools.iter().map(DeepSeekTool::from).collect(),
+        }
+    }
+}
+
+impl<'a> From<&'a AIToolOutput> for DeepSeekToolOutput<'a> {
+    fn from(value: &'a AIToolOutput) -> Self {
+        Self {
+            kind: "function_call_output",
+            call_id: &value.call_id,
+            output: &value.output,
         }
     }
 }
@@ -72,6 +112,8 @@ mod tests {
                 description: "Search local music".to_owned(),
                 parameters: json!({"type": "object"}),
             }],
+            previous_response_id: None,
+            tool_outputs: Vec::new(),
         };
 
         let value = serde_json::to_value(DeepSeekRequest::new("deepseek-flash", &request))
@@ -81,5 +123,22 @@ mod tests {
         assert_eq!(value["reasoning"]["effort"], "none");
         assert_eq!(value["tools"][0]["type"], "function");
         assert_eq!(value["tools"][0]["name"], "search_library");
+    }
+
+    #[test]
+    fn serializes_tool_outputs_with_previous_response_id() {
+        let request = AIRequest {
+            previous_response_id: Some("resp_previous".to_owned()),
+            tool_outputs: vec![crate::AIToolOutput {
+                call_id: "call_01".to_owned(),
+                output: "{\"tracks\":[]}".to_owned(),
+            }],
+            ..AIRequest::default()
+        };
+        let value = serde_json::to_value(DeepSeekRequest::new("deepseek-flash", &request))
+            .expect("serialize");
+        assert_eq!(value["previous_response_id"], "resp_previous");
+        assert_eq!(value["input"][0]["type"], "function_call_output");
+        assert_eq!(value["input"][0]["call_id"], "call_01");
     }
 }

@@ -12,9 +12,10 @@ async fn query_port_delegates_search_item_and_recent_listens_without_crossing_us
     let database = Database::open_in_memory().await.expect("database");
     let user = database.ensure_local_user().await.expect("local user");
     let importer = LocalLibraryImporter::new(database.pool().clone(), user);
+    let media_asset_id = MediaAssetId::new();
     let imported = importer
         .import(LocalImport {
-            media_asset_id: MediaAssetId::new(),
+            media_asset_id,
             normalized_path: b"song.flac".to_vec(),
             original_path: b"Song.flac".to_vec(),
             content_fingerprint: "fingerprint".to_owned(),
@@ -55,14 +56,26 @@ async fn query_port_delegates_search_item_and_recent_listens_without_crossing_us
     let listens = LibraryQueryPort::recent_listens(&repository, user, 0)
         .await
         .expect("listens");
+    let playable = LibraryQueryPort::playable_source(&repository, user, imported.track_id)
+        .await
+        .expect("playable source")
+        .expect("available asset");
 
     assert_eq!(search.len(), 1);
     assert_eq!(search[0].id, imported.track_id);
     assert_eq!(item.track.id, imported.track_id);
     assert_eq!(listens.len(), 1);
+    assert_eq!(playable.track_id, imported.track_id);
+    assert_eq!(playable.media_asset_id, media_asset_id);
+    assert_eq!(playable.subsong_index, None);
     assert_eq!(SearchQuery::default().limit, 20);
     assert!(
         LibraryQueryPort::search(&repository, UserId::new(), SearchQuery::default())
+            .await
+            .is_err()
+    );
+    assert!(
+        LibraryQueryPort::playable_source(&repository, UserId::new(), imported.track_id)
             .await
             .is_err()
     );

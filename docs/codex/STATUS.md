@@ -8,13 +8,13 @@ Last updated: 2026-09-29
 - Head before Task 7: `877d1ba chore(codex): add autonomous v0.1 workflow`
 - Working tree before Task 7: clean
 - Autonomous Codex configuration: prepared and structurally verified on 2026-09-28
-- Completed implementation tasks: Task 1–10
-- Current task: Task 11 Step 1, tool-registry RED preflight
-- Remaining implementation tasks: Task 11–15
+- Completed implementation tasks: Task 1–11
+- Current task: paused after the completed and published Task 11 checkpoint, per user instruction
+- Remaining implementation tasks: Task 12–15
 
 ## Next autonomous action
 
-Read the exact Task 11 plan and existing domain/storage/playback ports, then add the planned failing tool-schema and confirmation-policy tests before production implementation. Do not use a real DeepSeek key or spend without the explicit live-gate authorization required by the plan.
+When the user resumes work, start Task 12 Step 1 from the exact plan and add the failing desktop command-contract and frontend IPC tests before production implementation. Do not use a real DeepSeek key or spend without the explicit live-gate authorization required by the plan.
 
 ## Current blocker
 
@@ -30,4 +30,4 @@ Read the exact Task 11 plan and existing domain/storage/playback ports, then add
 
 ## Completion state
 
-V0.1 is not complete. Tasks 8 and 9 are complete and public. Task 10 adds the provider-neutral AI stream contract, allowlisted DeepSeek Responses client, strict SSE event sequencing, delayed tool-call release, current-user Windows Credential Manager storage, dated CNY pricing, and live-test-only budget hard stop. All 18 regular AI tests, the explicit reversible Windows credential round trip, strict all-target clippy, workspace fmt, secret-log scan, and public-boundary checks pass. No real DeepSeek credential or paid request was used. Tasks 11–15 remain unfinished.
+V0.1 is not complete. Tasks 8–11 are complete and public. Task 11 adds the bounded Agent loop, exact nine-tool registry, strict argument and UUIDv7 validation, local TrackId-to-PlayableSource resolution, generated OperationId routing through PlaybackManager, untrusted-tool-result redaction, current-conversation context loading, and safe provider/model/status/usage/cost persistence. All 35 regular AI tests pass, the one explicitly ignored reversible credential test remains separately verified, the complete workspace test suite passes, and strict related-crate all-target clippy, workspace fmt, diff, and public-boundary checks pass. No real DeepSeek credential or paid request was used. Tasks 12–15 remain unfinished.

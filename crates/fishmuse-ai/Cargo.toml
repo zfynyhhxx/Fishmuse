@@ -10,6 +10,9 @@ authors.workspace = true
 async-trait = "0.1"
 async-stream = "0.3"
 fishmuse-domain = { path = "../fishmuse-domain" }
+fishmuse-library = { path = "../fishmuse-library" }
+fishmuse-playback = { path = "../fishmuse-playback" }
+fishmuse-storage = { path = "../fishmuse-storage" }
 futures-core = "0.3"
 futures-util = "0.3"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
@@ -18,6 +21,7 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 time = { version = "0.3", features = ["macros", "serde"] }
 tokio = { version = "1", features = ["sync", "time"] }
+tokio-util = "0.7"
 url = "2"
 uuid = { version = "1", features = ["serde", "v7"] }
 

@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use fishmuse_domain::{
-    AppError, AppResult, ErrorCategory, ErrorCode, LibraryItem, ListenSummary, TrackId,
-    TrackSummary, UserId,
+    AppError, AppResult, ErrorCategory, ErrorCode, LibraryItem, ListenSummary, PlayableSource,
+    TrackId, TrackSummary, UserId,
 };
 use fishmuse_storage::{LibraryRepository, SqliteLibraryRepository};
 
@@ -31,6 +31,12 @@ pub trait LibraryQueryPort: Send + Sync {
     async fn get_item(&self, user_id: UserId, id: TrackId) -> AppResult<Option<LibraryItem>>;
 
     async fn recent_listens(&self, user_id: UserId, limit: u32) -> AppResult<Vec<ListenSummary>>;
+
+    async fn playable_source(
+        &self,
+        user_id: UserId,
+        track_id: TrackId,
+    ) -> AppResult<Option<PlayableSource>>;
 }
 
 #[async_trait]
@@ -54,6 +60,15 @@ impl LibraryQueryPort for SqliteLibraryRepository {
     async fn recent_listens(&self, user_id: UserId, limit: u32) -> AppResult<Vec<ListenSummary>> {
         ensure_user(self, user_id)?;
         SqliteLibraryRepository::recent_listens(self, limit).await
+    }
+
+    async fn playable_source(
+        &self,
+        user_id: UserId,
+        track_id: TrackId,
+    ) -> AppResult<Option<PlayableSource>> {
+        ensure_user(self, user_id)?;
+        SqliteLibraryRepository::playable_source(self, track_id).await
     }
 }
 

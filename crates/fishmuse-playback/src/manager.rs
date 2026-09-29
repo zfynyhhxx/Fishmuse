@@ -107,6 +107,10 @@ impl PlaybackManager {
             in_flight.lock().await.remove(&operation_id);
         });
     }
+
+    pub async fn snapshot(&self) -> AppResult<PlaybackSnapshot> {
+        self.backend.snapshot().await
+    }
 }
 
 async fn wait_for_outcome(entry: &InFlight) -> AppResult<PlaybackSnapshot> {

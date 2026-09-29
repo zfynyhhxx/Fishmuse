@@ -1,6 +1,9 @@
 use std::collections::HashMap;
 
-use serde::Deserialize;
+use serde::{
+    Deserialize, Deserializer,
+    de::{Error as _, MapAccess, SeqAccess, Visitor},
+};
 use serde_json::Value;
 
 use crate::{AIEvent, AIProviderError, AIUsage, ResponseId, ToolCall, ToolCallId};
@@ -123,8 +126,9 @@ impl DeepSeekEventDecoder {
                 "final tool arguments differ from streamed arguments",
             ));
         }
-        let arguments = serde_json::from_str(&event.arguments)
-            .map_err(|_| protocol("tool arguments are not valid JSON"))?;
+        let arguments = serde_json::from_str::<StrictValue>(&event.arguments)
+            .map_err(|error| protocol(format!("tool arguments are not strict JSON: {error}")))?
+            .0;
         Ok(vec![AIEvent::ToolCallCompleted(ToolCall {
             id: call.id,
             name: call.name,
@@ -233,5 +237,87 @@ struct InputTokenDetails {
 impl Usage {
     fn cached_input_tokens(&self) -> u64 {
         self.input_tokens_details.cached_tokens
+    }
+}
+
+struct StrictValue(Value);
+
+impl<'de> Deserialize<'de> for StrictValue {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        deserializer.deserialize_any(StrictValueVisitor)
+    }
+}
+
+struct StrictValueVisitor;
+
+impl<'de> Visitor<'de> for StrictValueVisitor {
+    type Value = StrictValue;
+
+    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("strict JSON without duplicate object properties")
+    }
+
+    fn visit_bool<E: serde::de::Error>(self, value: bool) -> Result<Self::Value, E> {
+        Ok(StrictValue(Value::Bool(value)))
+    }
+
+    fn visit_i64<E: serde::de::Error>(self, value: i64) -> Result<Self::Value, E> {
+        Ok(StrictValue(Value::from(value)))
+    }
+
+    fn visit_u64<E: serde::de::Error>(self, value: u64) -> Result<Self::Value, E> {
+        Ok(StrictValue(Value::from(value)))
+    }
+
+    fn visit_f64<E: serde::de::Error>(self, value: f64) -> Result<Self::Value, E> {
+        serde_json::Number::from_f64(value)
+            .map(Value::Number)
+            .map(StrictValue)
+            .ok_or_else(|| E::custom("non-finite number"))
+    }
+
+    fn visit_str<E: serde::de::Error>(self, value: &str) -> Result<Self::Value, E> {
+        Ok(StrictValue(Value::String(value.to_owned())))
+    }
+
+    fn visit_string<E: serde::de::Error>(self, value: String) -> Result<Self::Value, E> {
+        Ok(StrictValue(Value::String(value)))
+    }
+
+    fn visit_none<E: serde::de::Error>(self) -> Result<Self::Value, E> {
+        Ok(StrictValue(Value::Null))
+    }
+
+    fn visit_unit<E: serde::de::Error>(self) -> Result<Self::Value, E> {
+        Ok(StrictValue(Value::Null))
+    }
+
+    fn visit_seq<A>(self, mut sequence: A) -> Result<Self::Value, A::Error>
+    where
+        A: SeqAccess<'de>,
+    {
+        let mut values = Vec::new();
+        while let Some(value) = sequence.next_element::<StrictValue>()? {
+            values.push(value.0);
+        }
+        Ok(StrictValue(Value::Array(values)))
+    }
+
+    fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+    where
+        A: MapAccess<'de>,
+    {
+        let mut values = serde_json::Map::new();
+        while let Some(key) = map.next_key::<String>()? {
+            if values.contains_key(&key) {
+                return Err(A::Error::custom(format!("duplicate JSON property: {key}")));
+            }
+            let value = map.next_value::<StrictValue>()?;
+            values.insert(key, value.0);
+        }
+        Ok(StrictValue(Value::Object(values)))
     }
 }

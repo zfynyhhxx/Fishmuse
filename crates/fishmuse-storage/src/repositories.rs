@@ -1,7 +1,8 @@
 use async_trait::async_trait;
 use fishmuse_domain::{
     AppResult, ConversationId, DiscNumber, LibraryItem, ListenId, ListenSummary, MediaAssetId,
-    RecordingId, ReleaseId, ReleaseSummary, ScanId, TrackId, TrackNumber, TrackSummary, UserId,
+    PlayableSource, RecordingId, ReleaseId, ReleaseSummary, ScanId, TrackId, TrackNumber,
+    TrackSummary, UserId,
 };
 use serde_json::Value;
 use sqlx::{Row, SqlitePool, sqlite::SqliteRow};
@@ -417,6 +418,41 @@ impl SqliteLibraryRepository {
 
     fn user_text(&self) -> String {
         self.user_id.as_uuid().to_string()
+    }
+
+    pub async fn playable_source(&self, track_id: TrackId) -> AppResult<Option<PlayableSource>> {
+        let row = sqlx::query(
+            "SELECT media_asset_id, subsong_index, start_ms, end_ms FROM media_assets WHERE user_id = ? AND track_id = ? AND availability = 'available' ORDER BY media_asset_id LIMIT 1",
+        )
+        .bind(self.user_text())
+        .bind(track_id.as_uuid().to_string())
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(db_error)?;
+        row.map(|row| {
+            let media_asset_id: String = row.try_get("media_asset_id").map_err(db_error)?;
+            let subsong_index: Option<i64> = row.try_get("subsong_index").map_err(db_error)?;
+            let start_ms: Option<i64> = row.try_get("start_ms").map_err(db_error)?;
+            let end_ms: Option<i64> = row.try_get("end_ms").map_err(db_error)?;
+            Ok(PlayableSource {
+                track_id,
+                media_asset_id: MediaAssetId::try_from_uuid(parse_uuid(&media_asset_id)?)
+                    .map_err(|error| storage_error("storage_failure", error))?,
+                subsong_index: subsong_index
+                    .map(u32::try_from)
+                    .transpose()
+                    .map_err(|error| storage_error("storage_failure", error))?,
+                start_ms: start_ms
+                    .map(u64::try_from)
+                    .transpose()
+                    .map_err(|error| storage_error("storage_failure", error))?,
+                end_ms: end_ms
+                    .map(u64::try_from)
+                    .transpose()
+                    .map_err(|error| storage_error("storage_failure", error))?,
+            })
+        })
+        .transpose()
     }
 }
 
