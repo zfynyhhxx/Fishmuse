@@ -1,5 +1,17 @@
 # FishMuse V0.1 Verification Log
 
+### 2026-09-30 — V0.1 real-use runtime reliability repair
+
+- Read-only diagnosis: the active application database contained 2,188 available `media_assets`, all with `track_id IS NULL`, and zero tracks/FTS rows; it also contained zero conversations. The active foobar profile had no `foo_fishmuse` component, and the running debug PE used subsystem 3 (Console).
+- RED evidence: scanner tests returned no searchable tracks and skipped a legacy unprojected asset; conversation persistence failed with SQLite foreign-key code 787; desktop mapped a storage failure to `Tool`; frontend tests showed the playback launcher did not exist and the button never invoked IPC; the PE verifier reported subsystem 3. A self-review regression additionally proved a moved legacy asset was incorrectly treated as unchanged.
+- GREEN command: `CARGO_TARGET_DIR=target/codex-tests powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/test-unit.ps1`.
+- GREEN result: PASS. Workspace fmt/check, strict all-target Clippy, all regular Rust and doc tests, debug build, PE GUI-subsystem verification, frontend lint/typecheck, and 17/17 React tests passed. Credential-, paid-provider-, and real-foobar-mutating tests remained explicitly ignored.
+- Production debug command: `CARGO_TARGET_DIR=target/codex-tests pnpm --filter @fishmuse/desktop tauri:build --debug --no-bundle`, followed by `scripts/check-windows-subsystem.ps1` against the emitted executable.
+- Production debug result: PASS. The Vite production frontend and Tauri debug application built; the emitted PE verified as subsystem 2 (Windows GUI).
+- Component command: CTest Debug under `native/foo-fishmuse/build/windows-msvc`; inspect and hash the existing Release DLL at `native/foo-fishmuse/build/sdk/x64/Release/foo_fishmuse.dll`.
+- Component result: PASS (CTest 1/1). No real foobar profile was modified or launched. The final user-profile installation/live-ready confirmation remains operator-authorized work.
+- Self-review: no Critical or Important issue remained after adding moved-legacy repair. Repository policy prohibits routine review subagents, so the completed diff was reviewed inline against the runtime-reliability design and original four symptoms.
+
 Append commands only when they were actually run. Record failures as failures; do not infer a pass from an earlier task or commit.
 
 ## Current baseline

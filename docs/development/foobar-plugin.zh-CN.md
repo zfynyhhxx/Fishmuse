@@ -12,7 +12,7 @@ V0.1 的播放后端需要 foobar2000 v2.24.3 x64 与 `foo_fishmuse`。FishMuse 
 msbuild native\foo-fishmuse\foo_fishmuse.sln /m /p:Configuration=Release /p:Platform=x64 /p:TrackFileAccess=false
 ```
 
-产物为 `native\foo-fishmuse\build\windows-msvc\Release\foo_fishmuse.dll`。把 DLL 放到 foobar2000 当前用户 profile 的 `user-components-x64\foo_fishmuse\` 后重启 foobar2000。SDK、DLL、profile、媒体夹具与便携宿主都是本地工件，不得提交。
+产物为 `native\foo-fishmuse\build\sdk\x64\Release\foo_fishmuse.dll`。把 DLL 放到 foobar2000 当前用户 profile 的 `user-components-x64\foo_fishmuse\` 后重启 foobar2000。SDK、DLL、profile、媒体夹具与便携宿主都是本地工件，不得提交。
 
 ## 真实验收
 

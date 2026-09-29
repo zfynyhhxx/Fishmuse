@@ -4,6 +4,9 @@ Record only decisions that affect contracts, security, data integrity, architect
 
 | Date | Scope | Decision | Evidence / reason |
 | --- | --- | --- | --- |
+| 2026-09-30 | Legacy library repair | Treat a media asset as scanner-unchanged only after it has a canonical track projection; re-read tags and reuse the asset ID when a legacy unprojected file is unchanged or moved. | V0.1 scans had stored fingerprints and paths while discarding tags, leaving 2,188 real assets with no searchable tracks. Fingerprint equality alone therefore cannot prove import completion. |
+| 2026-09-30 | Playback launch boundary | Launch `foobar2000.exe` through Windows Shell/App Paths, then wake the existing reconnect supervisor; never copy the component into a real profile without explicit operator authorization. | App Paths supports the user's custom install location without exposing paths to the frontend, while component installation remains an external profile mutation. |
+| 2026-09-30 | Desktop subsystem | Build Windows debug and release executables with the GUI subsystem and verify the PE header in the unit gate. | The prior debug-only Console subsystem created a second blank window whose closure terminated the shared process. |
 | 2026-09-28 | Codex execution | Use `gpt-5.6-terra` at medium reasoning with low verbosity for routine V0.1 work. | Reduces routine reasoning/output cost while retaining an implementation-capable model. |
 | 2026-09-28 | Codex execution | Disable ordinary multi-agent tools and keep one primary implementation thread. | Historical FishMuse usage was dominated by child-session and review-chain context. |
 | 2026-09-28 | Codex execution | Keep `on-request` sandbox approvals with `auto_review`. | Preserves workspace boundaries while reducing user interruptions for eligible approvals. |

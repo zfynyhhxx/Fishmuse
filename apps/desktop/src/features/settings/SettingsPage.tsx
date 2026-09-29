@@ -54,7 +54,10 @@ export function SettingsPage() {
     setLaunchingPlayback(true);
     try {
       await launchPlaybackBackend();
-      setNotice("foobar2000 started. Waiting for the FishMuse component to connect.");
+      setNotice(
+        "foobar2000 started. Waiting for the FishMuse component to connect. " +
+        "If status stays disconnected, install the FishMuse component and restart foobar2000.",
+      );
       await refreshStatus();
     } catch {
       setNotice("foobar2000 could not be started. Confirm it is installed and try again.");

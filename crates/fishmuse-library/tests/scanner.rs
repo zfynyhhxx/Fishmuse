@@ -250,6 +250,60 @@ async fn matching_legacy_asset_without_track_projection_is_repaired() {
 }
 
 #[tokio::test]
+async fn moved_legacy_asset_without_track_projection_is_repaired_in_place() {
+    let (database, user_id) = setup().await;
+    let directory = tempdir().expect("temporary directory");
+    let old_path = directory.path().join("before.flac");
+    let current_path = directory.path().join("after.flac");
+    fixture(&current_path, b"generated moved legacy fixture");
+    let identity = fishmuse_library::FileIdentity::read(&current_path).expect("file identity");
+    let stored_identity = format!(
+        "q:{}|f:{}",
+        identity.quick_fingerprint, identity.content_fingerprint
+    );
+    let media_asset_id = MediaAssetId::new();
+    sqlx::query(
+        "INSERT INTO media_assets(media_asset_id, user_id, track_id, normalized_path, original_path, content_fingerprint, availability) VALUES (?, ?, NULL, ?, ?, ?, 'available')",
+    )
+    .bind(media_asset_id.as_uuid().to_string())
+    .bind(user_id.as_uuid().to_string())
+    .bind(fishmuse_library::normalize_path_bytes(&old_path))
+    .bind(b"legacy-native-path".as_slice())
+    .bind(stored_identity)
+    .execute(database.pool())
+    .await
+    .expect("moved legacy unprojected asset");
+    let reader = FakeTagReader::successful();
+    let scanner = LibraryScanner::new(database.pool().clone(), reader.clone());
+    let (progress, _receiver) = progress_channel();
+
+    let summary = scanner
+        .scan(
+            ScanRequest {
+                user_id,
+                roots: vec![directory.path().to_path_buf()],
+            },
+            CancellationToken::new(),
+            progress,
+        )
+        .await
+        .expect("repair moved legacy scan");
+
+    assert_eq!(summary.parsed, 1);
+    assert_eq!(reader.call_count(), 1);
+    let row: (String, Option<String>, Vec<u8>) = sqlx::query_as(
+        "SELECT media_asset_id, track_id, normalized_path FROM media_assets WHERE user_id = ?",
+    )
+    .bind(user_id.as_uuid().to_string())
+    .fetch_one(database.pool())
+    .await
+    .expect("repaired moved asset");
+    assert_eq!(row.0, media_asset_id.as_uuid().to_string());
+    assert!(row.1.is_some());
+    assert_eq!(row.2, fishmuse_library::normalize_path_bytes(&current_path));
+}
+
+#[tokio::test]
 async fn unchanged_rescan_does_not_parse_tags_again() {
     let (database, user_id) = setup().await;
     let directory = tempdir().expect("temporary directory");
@@ -507,6 +561,38 @@ async fn identical_replacements_map_sorted_old_ids_to_sorted_new_paths_determini
     let (database, user_id) = setup().await;
     let directory = tempdir().expect("temporary directory");
     let contents = vec![b'x'; 512 * 1024];
+    let old_paths: Vec<PathBuf> = ["old-a.flac", "old-b.flac", "old-c.flac", "old-d.flac"]
+        .into_iter()
+        .map(|name| directory.path().join(name))
+        .collect();
+    for path in &old_paths {
+        fixture(path, &contents);
+    }
+    let reader = FakeTagReader::successful();
+    let scanner = LibraryScanner::new(database.pool().clone(), reader.clone())
+        .with_concurrency_limit(old_paths.len());
+    let (progress, _receiver) = progress_channel();
+    scanner
+        .scan(
+            ScanRequest {
+                user_id,
+                roots: vec![directory.path().to_path_buf()],
+            },
+            CancellationToken::new(),
+            progress,
+        )
+        .await
+        .expect("initial projected scan");
+    let old_ids: Vec<String> = sqlx::query_scalar(
+        "SELECT media_asset_id FROM media_assets WHERE user_id = ? ORDER BY normalized_path",
+    )
+    .bind(user_id.as_uuid().to_string())
+    .fetch_all(database.pool())
+    .await
+    .expect("projected old asset ids");
+    for path in &old_paths {
+        fs::remove_file(path).expect("remove old fixture");
+    }
     let new_paths: Vec<PathBuf> = ["new-a.flac", "new-b.flac", "new-c.flac", "new-d.flac"]
         .into_iter()
         .map(|name| directory.path().join(name))
@@ -514,33 +600,6 @@ async fn identical_replacements_map_sorted_old_ids_to_sorted_new_paths_determini
     for path in &new_paths {
         fixture(path, &contents);
     }
-    let identity = fishmuse_library::FileIdentity::read(&new_paths[0]).expect("file identity");
-    let stored_identity = format!(
-        "q:{}|f:{}",
-        identity.quick_fingerprint, identity.content_fingerprint
-    );
-    let old_paths: Vec<PathBuf> = ["old-a.flac", "old-b.flac", "old-c.flac", "old-d.flac"]
-        .into_iter()
-        .map(|name| directory.path().join(name))
-        .collect();
-    let old_ids: Vec<MediaAssetId> = (0..old_paths.len()).map(|_| MediaAssetId::new()).collect();
-    for (old_path, old_id) in old_paths.iter().zip(&old_ids).rev() {
-        let normalized = fishmuse_library::normalize_path_bytes(old_path);
-        sqlx::query(
-            "INSERT INTO media_assets(media_asset_id, user_id, normalized_path, original_path, content_fingerprint, availability) VALUES (?, ?, ?, ?, ?, 'available')",
-        )
-        .bind(old_id.as_uuid().to_string())
-        .bind(user_id.as_uuid().to_string())
-        .bind(&normalized)
-        .bind(&normalized)
-        .bind(&stored_identity)
-        .execute(database.pool())
-        .await
-        .expect("seed disappeared asset");
-    }
-    let reader = FakeTagReader::successful();
-    let scanner = LibraryScanner::new(database.pool().clone(), reader.clone())
-        .with_concurrency_limit(new_paths.len());
     let (progress, _receiver) = progress_channel();
 
     let summary = scanner
@@ -556,13 +615,13 @@ async fn identical_replacements_map_sorted_old_ids_to_sorted_new_paths_determini
         .expect("replacement scan");
 
     assert_eq!(summary.unchanged, 4);
-    assert_eq!(reader.call_count(), 0);
+    assert_eq!(reader.call_count(), 4);
     for (old_id, new_path) in old_ids.iter().zip(&new_paths) {
         let stored_path: Vec<u8> = sqlx::query_scalar(
             "SELECT normalized_path FROM media_assets WHERE user_id = ? AND media_asset_id = ?",
         )
         .bind(user_id.as_uuid().to_string())
-        .bind(old_id.as_uuid().to_string())
+        .bind(old_id)
         .fetch_one(database.pool())
         .await
         .expect("mapped asset path");

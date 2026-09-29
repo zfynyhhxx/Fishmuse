@@ -598,17 +598,20 @@ async fn process_file<R: TagReader>(
             write,
         };
     }
-    if same_path.is_none()
-        && let Some(moved) = existing.take_move_candidate(&identity.content_fingerprint)
-    {
+    let moved = same_path
+        .is_none()
+        .then(|| existing.take_move_candidate(&identity.content_fingerprint))
+        .flatten();
+    if let Some(moved) = moved.as_ref().filter(|asset| asset.stored.projected) {
         return ProcessedFile::Unchanged {
             media_asset_id: moved.stored.media_asset_id,
             write: Some(asset_write(moved.stored.media_asset_id, &path, &identity)),
         };
     }
 
-    let media_asset_id =
-        same_path.map_or_else(MediaAssetId::new, |asset| asset.stored.media_asset_id);
+    let media_asset_id = same_path
+        .or(moved.as_ref())
+        .map_or_else(MediaAssetId::new, |asset| asset.stored.media_asset_id);
     drop(identity_turn);
 
     match tag_reader.read(&path).await {

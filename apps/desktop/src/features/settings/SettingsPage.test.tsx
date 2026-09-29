@@ -85,6 +85,8 @@ describe("settings", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Start foobar2000" }));
 
     await waitFor(() => expect(launchPlaybackBackend).toHaveBeenCalledOnce());
-    expect(screen.getByRole("status").textContent).toMatch(/waiting for the FishMuse component/i);
+    expect(screen.getByRole("status").textContent).toMatch(
+      /stays disconnected, install the FishMuse component/i,
+    );
   });
 });
