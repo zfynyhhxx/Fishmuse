@@ -8,13 +8,13 @@ Last updated: 2026-09-29
 - Head before Task 7: `877d1ba chore(codex): add autonomous v0.1 workflow`
 - Working tree before Task 7: clean
 - Autonomous Codex configuration: prepared and structurally verified on 2026-09-28
-- Completed implementation tasks: Task 1–11 and Task 11.5
-- Current task: revised Task 12, ready for Step 1 command-contract and frontend IPC RED tests after the Task 11.5 commit
-- Remaining implementation tasks: revised Task 12–15
+- Completed implementation tasks: Task 1–12, including Task 11.5
+- Current task: revised Task 13, ready for failing onboarding, Settings, Library, and MiniPlayer UI tests after the Task 12 commit
+- Remaining implementation tasks: revised Task 13–15
 
 ## Next autonomous action
 
-Start revised Task 12 Step 1 with failing desktop command-contract and frontend IPC tests. AppState must depend on `Arc<dyn AIService>`, accept optional `ContextEnvelope`, emit the versioned AI envelope, and expose generic playback/AI service state. Do not start any deferred Curator, Taste, proactive AI, capture, Provider, MusicBrainz, embedding, Native Playback, or Proposal feature. Do not use a real DeepSeek key or spend without the explicit live-gate authorization required by the plan.
+Start revised Task 13 Step 1 with failing onboarding and Settings tests, then build the Library page and MiniPlayer against the Task 12 IPC boundary. Settings must present `Playback → backend: foobar2000` and `AI → provider: DeepSeek` as implementations behind generic services. Do not start any deferred Curator, Taste, proactive AI, capture, Provider, MusicBrainz, embedding, Native Playback, or Proposal feature. Do not use a real DeepSeek key or spend without the explicit live-gate authorization required by the plan.
 
 ## Current blocker
 
@@ -30,4 +30,4 @@ Start revised Task 12 Step 1 with failing desktop command-contract and frontend 
 
 ## Completion state
 
-V0.1 is not complete. Tasks 8–11 are complete and public. Task 11.5 adds the provider-neutral `AIService` facade over `AgentRunner`, safe optional versioned `ContextEnvelope`, UUIDv7 turn identity, strictly sequenced versioned application events with explicit event type/payload, and generic AI/playback service state. Context paths are redacted and structured context is labeled untrusted data; all existing Agent/tool/security/playback behavior remains unchanged. Revised Tasks 12–15 remain unfinished. No real DeepSeek credential or paid request was used.
+V0.1 is not complete. Tasks 8–11 are complete and public; Task 11.5 is committed as `22497ba`. Revised Task 12 now assembles the database/local user, Library services, replaceable playback service, application-level `AIService`, credential-driven live AI replacement, cancellation registries, safe commands, and four stable event channels. The UI receives generic service states and backend-neutral playback snapshots; DeepSeek and foobar types remain in the composition root. Core/Library remain usable when AI is unconfigured or playback is disconnected. Revised Tasks 13–15 remain unfinished. No real DeepSeek request or paid spend was used.

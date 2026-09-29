@@ -1,71 +1,43 @@
-import { invoke } from "@tauri-apps/api/core";
 import { useEffect, useState } from "react";
 
-type ServiceState = "unavailable" | "not_configured";
+import type { AppStatus } from "./contracts";
+import { getAppStatus } from "./lib/ipc";
 
-type HealthStatus = {
-  version: string;
-  database: ServiceState;
-  playback: ServiceState;
-  ai: ServiceState;
-};
-
-const fallbackHealthStatus: HealthStatus = {
+const fallbackStatus: AppStatus = {
   version: "unknown",
   database: "unavailable",
-  playback: "unavailable",
-  ai: "not_configured",
+  playback: { status: "unavailable", implementation: null },
+  ai: { status: "not_configured", implementation: null },
 };
 
-function isServiceState(value: unknown): value is ServiceState {
-  return value === "unavailable" || value === "not_configured";
-}
-
-function isHealthStatus(value: unknown): value is HealthStatus {
-  if (!value || typeof value !== "object") {
-    return false;
-  }
-
-  const status = value as Record<string, unknown>;
-  return (
-    typeof status.version === "string" &&
-    isServiceState(status.database) &&
-    isServiceState(status.playback) &&
-    isServiceState(status.ai)
-  );
-}
-
-function formatServiceState(state: ServiceState) {
-  return state === "not_configured" ? "Not configured" : "Unavailable";
+function formatServiceState(state: string) {
+  return state
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
 }
 
 export default function App() {
-  const [healthStatus, setHealthStatus] = useState<HealthStatus>(fallbackHealthStatus);
+  const [status, setStatus] = useState<AppStatus>(fallbackStatus);
 
   useEffect(() => {
     let isMounted = true;
-
-    void invoke<unknown>("healthcheck")
-      .then((status) => {
-        if (isMounted && isHealthStatus(status)) {
-          setHealthStatus(status);
-        }
+    void getAppStatus()
+      .then((next) => {
+        if (isMounted) setStatus(next);
       })
       .catch(() => {
-        if (isMounted) {
-          setHealthStatus(fallbackHealthStatus);
-        }
+        if (isMounted) setStatus(fallbackStatus);
       });
-
     return () => {
       isMounted = false;
     };
   }, []);
 
   const serviceStates = [
-    ["Database", formatServiceState(healthStatus.database)],
-    ["Playback", formatServiceState(healthStatus.playback)],
-    ["AI", formatServiceState(healthStatus.ai)],
+    ["Database", formatServiceState(status.database)],
+    ["Playback", formatServiceState(status.playback.status)],
+    ["AI", formatServiceState(status.ai.status)],
   ] as const;
 
   return (

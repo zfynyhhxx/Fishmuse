@@ -1,28 +1,26 @@
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
-import { invoke } from "@tauri-apps/api/core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import App from "./App";
+import { getAppStatus } from "./lib/ipc";
 
-vi.mock("@tauri-apps/api/core", () => ({
-  invoke: vi.fn(),
-}));
+vi.mock("./lib/ipc", () => ({ getAppStatus: vi.fn() }));
 
-const mockedInvoke = vi.mocked(invoke);
+const mockedGetAppStatus = vi.mocked(getAppStatus);
 
 afterEach(cleanup);
 
 beforeEach(() => {
-  mockedInvoke.mockReset();
+  mockedGetAppStatus.mockReset();
 });
 
 describe("FishMuse desktop shell", () => {
-  it("maps the Rust healthcheck DTO into service states", async () => {
-    mockedInvoke.mockResolvedValue({
+  it("maps the application DTO into provider-neutral service states", async () => {
+    mockedGetAppStatus.mockResolvedValue({
       version: "0.1.0",
-      database: "not_configured",
-      playback: "unavailable",
-      ai: "unavailable",
+      database: "ready",
+      playback: { status: "disconnected", implementation: null },
+      ai: { status: "unavailable", implementation: null },
     });
 
     render(<App />);
@@ -31,22 +29,22 @@ describe("FishMuse desktop shell", () => {
     expect(screen.getByText("Local-first")).toBeTruthy();
 
     await waitFor(() => {
-      expect(mockedInvoke).toHaveBeenCalledWith("healthcheck");
-      expect(screen.getByText("Database: Not configured")).toBeTruthy();
-      expect(screen.getByText("Playback: Unavailable")).toBeTruthy();
+      expect(mockedGetAppStatus).toHaveBeenCalledOnce();
+      expect(screen.getByText("Database: Ready")).toBeTruthy();
+      expect(screen.getByText("Playback: Disconnected")).toBeTruthy();
       expect(screen.getByText("AI: Unavailable")).toBeTruthy();
     });
   });
 
-  it("keeps the local-first shell usable when healthcheck is unavailable", async () => {
-    mockedInvoke.mockRejectedValue(new Error("Tauri is unavailable"));
+  it("keeps the local-first shell usable when application services are unavailable", async () => {
+    mockedGetAppStatus.mockRejectedValue(new Error("Tauri is unavailable"));
 
     render(<App />);
 
     await waitFor(() => {
       expect(screen.getByText("Database: Unavailable")).toBeTruthy();
       expect(screen.getByText("Playback: Unavailable")).toBeTruthy();
-      expect(screen.getByText("AI: Not configured")).toBeTruthy();
+      expect(screen.getByText("AI: Not Configured")).toBeTruthy();
     });
   });
 });

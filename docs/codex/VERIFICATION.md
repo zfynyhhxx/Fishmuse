@@ -173,6 +173,16 @@ Append commands only when they were actually run. Record failures as failures; d
 - Static result: PASS after applying repository formatting; zero Clippy warnings/errors and zero formatting/diff errors. Line-ending notices are informational only.
 - Scope/privacy result: no new tool, provider, graph write, capture, proactive AI, Curator, Taste, embedding, MusicBrainz, streaming Provider, Native Playback, or Proposal implementation was added. No real credential, paid request, foobar profile, binary, database, media, or local machine path entered the candidate diff.
 
+### 2026-09-29 — revised Task 12 application boundary
+
+- Commit or working state: Task 12 command/event/application assembly on committed Task 11.5 base `22497ba`; no Task 13 product UI was implemented beyond migrating the existing shell from the removed healthcheck to generic `get_app_status`.
+- RED evidence: `cargo test -p fishmuse-desktop --test command_contracts` failed on absent state/error/event/command modules and dependencies; `pnpm --filter @fishmuse/desktop test --run src/lib/ipc.test.ts` failed because the IPC module did not exist.
+- Contract GREEN: Rust command contracts pass 9/9 and cover exact event names, optional versioned ContextEnvelope, UUIDv7 validation, bounded search, safe error serialization, generic service state, concurrent-scan rejection/cancellation, Fake AI/Fake Playback replacement, sequenced application AI events, ordered shutdown, and Core availability with AI unconfigured or playback disconnected. Frontend tests pass 4/4, including subscribe-before-invoke and version/sequence/UUID checks.
+- Assembly evidence: `AppState` owns the database/local user, scanner/query ports, replaceable playback and AI services, cancellation registries, generic watch state, and event sink. DeepSeek/foobar concrete types appear only in the composition root; credential save/delete atomically reloads the provider-neutral AI service. Windows media paths resolve only from user-scoped SQLite inside the playback adapter and are absent from UI/AI DTOs.
+- Full command: `cargo test --workspace`; `cargo clippy --workspace --all-targets -- -D warnings`; `cargo fmt --all -- --check`; `git diff --check`; `pnpm --filter @fishmuse/desktop test --run`; `pnpm --filter @fishmuse/desktop typecheck`; `pnpm --filter @fishmuse/desktop lint`.
+- Full result: PASS. Every regular Rust workspace and doc test passed; the one intentionally ignored reversible credential test remained ignored; strict workspace Clippy, Rust formatting, diff check, frontend tests, TypeScript, and ESLint exited 0.
+- External/privacy note: no real credential was loaded into a test, no DeepSeek request or paid spend occurred, no foobar profile was modified, command errors omit `technical_context`, and public playback/AI contracts contain logical IDs and generic service state rather than local paths or concrete runtime types.
+
 ## Entry format
 
 ### YYYY-MM-DD — task/checkpoint
