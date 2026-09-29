@@ -8,13 +8,13 @@ Last updated: 2026-09-29
 - Head before Task 7: `877d1ba chore(codex): add autonomous v0.1 workflow`
 - Working tree before Task 7: clean
 - Autonomous Codex configuration: prepared and structurally verified on 2026-09-28
-- Completed implementation tasks: Task 1–12, including Task 11.5
-- Current task: revised Task 13, ready for failing onboarding, Settings, Library, and MiniPlayer UI tests after the Task 12 commit
-- Remaining implementation tasks: revised Task 13–15
+- Completed implementation tasks: Task 1–13, including Task 11.5
+- Current task: revised Task 14, ready for failing streaming chat and revisioned playback UI tests
+- Remaining implementation tasks: revised Task 14–15
 
 ## Next autonomous action
 
-Start revised Task 13 Step 1 with failing onboarding and Settings tests, then build the Library page and MiniPlayer against the Task 12 IPC boundary. Settings must present `Playback → backend: foobar2000` and `AI → provider: DeepSeek` as implementations behind generic services. Do not start any deferred Curator, Taste, proactive AI, capture, Provider, MusicBrainz, embedding, Native Playback, or Proposal feature. Do not use a real DeepSeek key or spend without the explicit live-gate authorization required by the plan.
+Start revised Task 14 Step 1 with failing streamed-chat tests, then add Now Playing and shared revisioned playback state. Route AI events by active turn, ignore stale sequences/revisions, keep turns alive across page navigation, and preserve provider/backend-neutral presentation contracts. Do not use a real DeepSeek key or spend without the explicit live-gate authorization required by the plan.
 
 ## Current blocker
 
@@ -30,4 +30,4 @@ Start revised Task 13 Step 1 with failing onboarding and Settings tests, then bu
 
 ## Completion state
 
-V0.1 is not complete. Tasks 8–11 are complete and public; Task 11.5 is committed as `22497ba`. Revised Task 12 now assembles the database/local user, Library services, replaceable playback service, application-level `AIService`, credential-driven live AI replacement, cancellation registries, safe commands, and four stable event channels. The UI receives generic service states and backend-neutral playback snapshots; DeepSeek and foobar types remain in the composition root. Core/Library remain usable when AI is unconfigured or playback is disconnected. Revised Tasks 13–15 remain unfinished. No real DeepSeek request or paid spend was used.
+V0.1 is not complete. Revised Task 13 provides first-run onboarding, Settings, a paginated and virtualized local Library, safe scan diagnostics, generic service state, and a global MiniPlayer. Settings reads cumulative estimated spend from the local usage ledger and exposes the ¥10 warning / ¥20 live-test stop thresholds without exposing credentials. Library pagination uses bounded offsets while the AI tool remains capped at twenty results. Revised Tasks 14–15 remain unfinished. No real DeepSeek request or paid spend was used.

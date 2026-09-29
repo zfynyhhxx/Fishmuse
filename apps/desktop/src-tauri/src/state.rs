@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use fishmuse_ai::{
     AI_APPLICATION_CONTRACT_VERSION, AIApplicationEvent, AIApplicationFailureReason,
     AIEventEnvelope, AIService, AIServiceState, AIServiceStatus, AIServiceTurn,
-    AIServiceTurnRequest, AITurnId, ContextEnvelope, CredentialStore, ProviderId,
+    AIServiceTurnRequest, AITurnId, ContextEnvelope, CostPolicy, CredentialStore, ProviderId,
     ServiceImplementation as AIImplementation,
 };
 use fishmuse_domain::{
@@ -32,6 +32,7 @@ use crate::{
 };
 
 const MAX_LIBRARY_SEARCH_LIMIT: u32 = 100;
+const MAX_LIBRARY_SEARCH_OFFSET: u32 = 1_000_000;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -74,6 +75,8 @@ pub struct SearchQueryDto {
     pub artist: Option<String>,
     pub release: Option<String>,
     pub limit: u32,
+    #[serde(default)]
+    pub offset: u32,
 }
 
 impl SearchQueryDto {
@@ -81,11 +84,15 @@ impl SearchQueryDto {
         if self.limit == 0 || self.limit > MAX_LIBRARY_SEARCH_LIMIT {
             return Err(invalid_input("Search limit must be between 1 and 100."));
         }
+        if self.offset > MAX_LIBRARY_SEARCH_OFFSET {
+            return Err(invalid_input("Search offset must not exceed 1000000."));
+        }
         Ok(SearchQuery {
             text: self.text,
             artist: self.artist,
             release: self.release,
             limit: self.limit,
+            offset: self.offset,
         })
     }
 }
@@ -189,6 +196,15 @@ pub struct AISettingsDto {
     pub provider: String,
     pub model: String,
     pub service: AIServiceState,
+    pub budget: AISettingsBudgetDto,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct AISettingsBudgetDto {
+    pub spent_microunits: u64,
+    pub warning_at_microunits: u64,
+    pub hard_stop_at_microunits: u64,
 }
 
 #[derive(Deserialize)]
@@ -257,6 +273,7 @@ impl PlaybackApplicationService for PlaybackManager {
 
 pub struct AppState {
     database: Mutex<Option<Database>>,
+    pool: sqlx::SqlitePool,
     user_id: UserId,
     scanner: Arc<dyn LibraryScanService>,
     library: Arc<dyn LibraryQueryPort>,
@@ -286,10 +303,12 @@ impl AppState {
         credentials: Arc<dyn CredentialStore>,
         events: Arc<dyn ApplicationEventSink>,
     ) -> Arc<Self> {
+        let pool = database.pool().clone();
         let (playback_state, _) = watch::channel(playback_state);
         let (ai_state, _) = watch::channel(ai.state());
         let state = Arc::new(Self {
             database: Mutex::new(Some(database)),
+            pool,
             user_id,
             scanner,
             library,
@@ -652,11 +671,39 @@ impl AppState {
             .await
             .map_err(CommandError::from)?
             .is_some();
+        let spent_microunits = sqlx::query_scalar::<_, i64>(
+            "SELECT COALESCE(SUM(cost_microunits), 0) FROM ai_usage_ledger WHERE user_id = ?",
+        )
+        .bind(self.user_id.as_uuid().to_string())
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|error| AppError {
+            code: ErrorCode::StorageFailure,
+            category: ErrorCategory::Storage,
+            user_message: "AI budget information is temporarily unavailable.".to_owned(),
+            retryable: true,
+            suggested_action: Some("retry".to_owned()),
+            technical_context: Some(error.to_string()),
+        })?;
+        let spent_microunits = u64::try_from(spent_microunits).map_err(|error| AppError {
+            code: ErrorCode::StorageFailure,
+            category: ErrorCategory::Storage,
+            user_message: "AI budget information is temporarily unavailable.".to_owned(),
+            retryable: false,
+            suggested_action: None,
+            technical_context: Some(error.to_string()),
+        })?;
+        let policy = CostPolicy::default();
         Ok(AISettingsDto {
             configured,
             provider: "deepseek".to_owned(),
             model: "deepseek-flash".to_owned(),
             service: self.ai_state.borrow().clone(),
+            budget: AISettingsBudgetDto {
+                spent_microunits,
+                warning_at_microunits: policy.warning_at.0,
+                hard_stop_at_microunits: policy.hard_stop_at.0,
+            },
         })
     }
 

@@ -4,11 +4,16 @@ import { listen, type Event, type UnlistenFn } from "@tauri-apps/api/event";
 import {
   AI_APPLICATION_CONTRACT_VERSION,
   type AIEventEnvelope,
+  type AISettings,
   type AppStatus,
+  type LibraryItem,
   type PlaybackCommand,
   type PlaybackSnapshot,
+  type ScanProgress,
   type SearchQuery,
+  type ServiceStateEvent,
   type StartTurnRequest,
+  type TrackSummary,
   type TurnStarted,
 } from "../contracts";
 
@@ -64,6 +69,12 @@ export async function startAITurn(
 }
 
 export const getAppStatus = () => invoke<AppStatus>("get_app_status");
+export const listenForScanProgress = (listener: (progress: ScanProgress) => void) =>
+  listen<ScanProgress>(SCAN_PROGRESS_EVENT, (event) => listener(event.payload));
+export const listenForPlaybackState = (listener: (snapshot: PlaybackSnapshot) => void) =>
+  listen<PlaybackSnapshot>(PLAYBACK_STATE_EVENT, (event) => listener(event.payload));
+export const listenForServiceState = (listener: (state: ServiceStateEvent) => void) =>
+  listen<ServiceStateEvent>(SERVICE_STATE_EVENT, (event) => listener(event.payload));
 export const chooseLibraryFolders = () =>
   invoke<string[]>("choose_library_folders");
 export const startLibraryScan = (roots: string[]) =>
@@ -71,9 +82,9 @@ export const startLibraryScan = (roots: string[]) =>
 export const cancelLibraryScan = (scanId: string) =>
   invoke<void>("cancel_library_scan", { scanId });
 export const searchLibrary = (query: SearchQuery) =>
-  invoke<unknown[]>("search_library", { query });
+  invoke<TrackSummary[]>("search_library", { query });
 export const getLibraryItem = (trackId: string) =>
-  invoke<unknown | null>("get_library_item", { trackId });
+  invoke<LibraryItem | null>("get_library_item", { trackId });
 export const cancelAITurn = (turnId: string) =>
   invoke<void>("cancel_ai_turn", { turnId });
 export const executePlayback = (command: PlaybackCommand) =>
@@ -84,4 +95,4 @@ export const configureDeepSeekKey = (apiKey: string) =>
   invoke<void>("configure_deepseek_key", { apiKey: { api_key: apiKey } });
 export const deleteDeepSeekKey = () =>
   invoke<void>("delete_deepseek_key");
-export const getAISettings = () => invoke<unknown>("get_ai_settings");
+export const getAISettings = () => invoke<AISettings>("get_ai_settings");

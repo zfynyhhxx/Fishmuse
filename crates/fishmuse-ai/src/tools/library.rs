@@ -15,6 +15,7 @@ pub(super) async fn execute(
                 artist: optional_string(arguments, "artist")?.map(str::to_owned),
                 release: optional_string(arguments, "release")?.map(str::to_owned),
                 limit: u32_value(arguments, "limit")?,
+                offset: 0,
             };
             serde_json::to_value(library.search(user_id, query).await?).map_err(serialization_error)
         }

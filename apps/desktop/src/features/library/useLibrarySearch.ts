@@ -1,0 +1,65 @@
+import { useEffect, useRef, useState } from "react";
+
+import type { TrackSummary } from "../../contracts";
+import { searchLibrary } from "../../lib/ipc";
+
+const PAGE_SIZE = 100;
+
+export function useLibrarySearch() {
+  const [query, setQuery] = useState("");
+  const [tracks, setTracks] = useState<TrackSummary[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const request = useRef(0);
+
+  useEffect(() => {
+    const requestId = ++request.current;
+    const timer = window.setTimeout(() => {
+      setLoading(true);
+      setError(null);
+      void searchLibrary({ text: query, artist: null, release: null, limit: PAGE_SIZE, offset: 0 })
+        .then((results) => {
+          if (request.current === requestId) {
+            setTracks(results);
+            setHasMore(results.length === PAGE_SIZE);
+          }
+        })
+        .catch(() => {
+          if (request.current === requestId) setError("Library search is temporarily unavailable.");
+        })
+        .finally(() => {
+          if (request.current === requestId) setLoading(false);
+        });
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [query]);
+
+  const loadMore = async () => {
+    const requestId = request.current;
+    setLoadingMore(true);
+    try {
+      const results = await searchLibrary({
+        text: query,
+        artist: null,
+        release: null,
+        limit: PAGE_SIZE,
+        offset: tracks.length,
+      });
+      if (request.current === requestId) {
+        setTracks((current) => {
+          const seen = new Set(current.map((track) => track.id));
+          return current.concat(results.filter((track) => !seen.has(track.id)));
+        });
+        setHasMore(results.length === PAGE_SIZE);
+      }
+    } catch {
+      if (request.current === requestId) setError("More library results could not be loaded.");
+    } finally {
+      if (request.current === requestId) setLoadingMore(false);
+    }
+  };
+
+  return { query, setQuery, tracks, loading, loadingMore, hasMore, loadMore, error };
+}

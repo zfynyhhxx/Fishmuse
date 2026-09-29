@@ -11,6 +11,7 @@ pub struct SearchQuery {
     pub artist: Option<String>,
     pub release: Option<String>,
     pub limit: u32,
+    pub offset: u32,
 }
 
 impl Default for SearchQuery {
@@ -20,6 +21,7 @@ impl Default for SearchQuery {
             artist: None,
             release: None,
             limit: 20,
+            offset: 0,
         }
     }
 }
@@ -48,6 +50,7 @@ impl LibraryQueryPort for SqliteLibraryRepository {
             query.artist.as_deref(),
             query.release.as_deref(),
             query.limit,
+            query.offset,
         )
         .await
     }

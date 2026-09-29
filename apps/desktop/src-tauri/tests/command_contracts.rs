@@ -95,6 +95,7 @@ fn invalid_ids_and_unbounded_search_limits_are_rejected() {
         artist: None,
         release: None,
         limit: 101,
+        offset: 0,
     };
     assert!(query.validate().is_err());
 
@@ -130,6 +131,29 @@ fn app_status_exposes_generic_service_states_only() {
     assert_eq!(value["ai"]["status"], "not_configured");
     assert!(value.get("foobar").is_none());
     assert!(value.get("deepseek").is_none());
+}
+
+#[test]
+fn library_search_accepts_bounded_user_page_offsets() {
+    let dto: SearchQueryDto = serde_json::from_value(json!({
+        "text": "river",
+        "artist": null,
+        "release": null,
+        "limit": 100,
+        "offset": 100
+    }))
+    .expect("paged search DTO");
+    assert_eq!(dto.validate().expect("valid page").offset, 100);
+
+    let excessive: SearchQueryDto = serde_json::from_value(json!({
+        "text": "",
+        "artist": null,
+        "release": null,
+        "limit": 100,
+        "offset": 1_000_001
+    }))
+    .expect("bounded search DTO shape");
+    assert!(excessive.validate().is_err());
 }
 
 #[test]
@@ -313,8 +337,14 @@ impl CredentialStore for MemoryCredentials {
 
 async fn test_state(
     ai: Arc<dyn AIService>,
-) -> (Arc<AppState>, Arc<MemoryEventSink>, Arc<AtomicBool>) {
+) -> (
+    Arc<AppState>,
+    Arc<MemoryEventSink>,
+    Arc<AtomicBool>,
+    sqlx::SqlitePool,
+) {
     let database = Database::open_in_memory().await.expect("database");
+    let pool = database.pool().clone();
     let user_id = database.ensure_local_user().await.expect("local user");
     let events = Arc::new(MemoryEventSink::default());
     let playback_shutdown = Arc::new(AtomicBool::new(false));
@@ -334,13 +364,13 @@ async fn test_state(
         Arc::new(MemoryCredentials::default()),
         events.clone(),
     );
-    (state, events, playback_shutdown)
+    (state, events, playback_shutdown, pool)
 }
 
 #[tokio::test]
 async fn fake_services_preserve_events_cancellation_and_shutdown_contracts() {
     let saw_context = Arc::new(AtomicBool::new(false));
-    let (state, events, playback_shutdown) =
+    let (state, events, playback_shutdown, _) =
         test_state(Arc::new(FakeAI::ready(saw_context.clone()))).await;
 
     let scan = state
@@ -423,7 +453,7 @@ async fn fake_services_preserve_events_cancellation_and_shutdown_contracts() {
 
 #[tokio::test]
 async fn unavailable_ai_does_not_disable_core_status_or_library_search() {
-    let (state, _, _) = test_state(Arc::new(
+    let (state, _, _, _) = test_state(Arc::new(
         fishmuse_desktop::state::UnavailableAIService::new(false),
     ))
     .await;
@@ -440,6 +470,7 @@ async fn unavailable_ai_does_not_disable_core_status_or_library_search() {
                 artist: None,
                 release: None,
                 limit: 20,
+                offset: 0,
             })
             .await
             .is_ok()
@@ -455,6 +486,38 @@ async fn unavailable_ai_does_not_disable_core_status_or_library_search() {
             .is_err()
     );
     state.shutdown().await;
+}
+
+#[tokio::test]
+async fn ai_settings_reports_persisted_spend_and_budget_thresholds() {
+    let (state, _, _, pool) = test_state(Arc::new(
+        fishmuse_desktop::state::UnavailableAIService::new(false),
+    ))
+    .await;
+    let user_id: String = sqlx::query_scalar("SELECT user_id FROM users LIMIT 1")
+        .fetch_one(&pool)
+        .await
+        .expect("local user");
+    sqlx::query(
+        "INSERT INTO ai_usage_ledger (usage_id, user_id, conversation_id, model, input_tokens, output_tokens, cost_microunits, created_at) VALUES (?, ?, NULL, ?, ?, ?, ?, ?)",
+    )
+    .bind("usage-settings-budget")
+    .bind(user_id)
+    .bind("deepseek-flash")
+    .bind(100_i64)
+    .bind(50_i64)
+    .bind(10_000_001_i64)
+    .bind(1_i64)
+    .execute(&pool)
+    .await
+    .expect("usage row");
+
+    let value = serde_json::to_value(state.ai_settings().await.expect("AI settings"))
+        .expect("serialize AI settings");
+    assert_eq!(value["budget"]["spent_microunits"], 10_000_001);
+    assert_eq!(value["budget"]["warning_at_microunits"], 10_000_000);
+    assert_eq!(value["budget"]["hard_stop_at_microunits"], 20_000_000);
+    assert!(value.get("api_key").is_none());
 }
 
 #[tokio::test]
@@ -487,6 +550,7 @@ async fn disconnected_playback_does_not_disable_non_playback_features() {
                 artist: None,
                 release: None,
                 limit: 20,
+                offset: 0,
             })
             .await
             .is_ok()

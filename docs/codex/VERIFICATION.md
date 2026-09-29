@@ -183,6 +183,14 @@ Append commands only when they were actually run. Record failures as failures; d
 - Full result: PASS. Every regular Rust workspace and doc test passed; the one intentionally ignored reversible credential test remained ignored; strict workspace Clippy, Rust formatting, diff check, frontend tests, TypeScript, and ESLint exited 0.
 - External/privacy note: no real credential was loaded into a test, no DeepSeek request or paid spend occurred, no foobar profile was modified, command errors omit `technical_context`, and public playback/AI contracts contain logical IDs and generic service state rather than local paths or concrete runtime types.
 
+### 2026-09-29 — revised Task 13 onboarding, Settings, and local Library
+
+- RED evidence: onboarding, Settings, and Library integration tests first failed against the Task 12 shell because the requested routes and controls did not exist. The 10,000-row contract failed with 10,001 rendered rows before virtualization. Library paging failed before a `Load more tracks` action and bounded offset contract existed. The Settings budget contract returned `null` before the safe budget DTO and ledger aggregate were added.
+- Frontend result: `pnpm --filter @fishmuse/desktop test --run` passed 10/10 across 5 files; typecheck and ESLint exited 0; `pnpm --filter @fishmuse/desktop build` produced the Vite production bundle successfully.
+- Rust result: after the initial format gate identified three mechanical differences and `cargo fmt --all` corrected them, `cargo fmt --all -- --check`, `cargo test --workspace`, and `cargo clippy --workspace --all-targets -- -D warnings` all exited 0. Command contracts pass 11/11 and storage search tests pass 4/4, including bounded page offsets, persisted budget totals, and the central warning/hard-stop thresholds.
+- Behavior evidence: first-run folder choice starts background scanning; scan progress and safe diagnostics do not block navigation/search; search debounces 300 ms and stale results cannot replace a newer query; UI pages are 100 rows and a 10,000-track collection renders fewer than 50 DOM rows; play sends only TrackId plus a fresh UUIDv7 OperationId; key input is masked and cleared after save; generic service status and MiniPlayer remain global.
+- Privacy/scope result: no media path is persisted in frontend state, no key is read back or rendered, no `technical_context` crosses the command boundary, and no deferred Curator, Taste, Provider, capture, MusicBrainz, embedding, Native Playback, or Proposal feature was added. No real credential, network request, paid spend, foobar profile, or external installation was touched.
+
 ## Entry format
 
 ### YYYY-MM-DD — task/checkpoint

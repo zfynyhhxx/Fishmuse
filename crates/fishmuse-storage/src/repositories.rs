@@ -288,8 +288,10 @@ impl SqliteLibraryRepository {
         artist: Option<&str>,
         release: Option<&str>,
         limit: u32,
+        offset: u32,
     ) -> AppResult<Vec<TrackSummary>> {
         let limit = effective_limit(limit);
+        let offset = offset.min(1_000_000);
         let normalized_text = normalize_search_text(text);
         let normalized_artist = artist.map(normalize_search_text);
         let normalized_release = release.map(normalize_search_text);
@@ -297,7 +299,7 @@ impl SqliteLibraryRepository {
         let release_pattern = normalized_release.as_deref().map(like_contains_pattern);
         let rows = if normalized_text.is_empty() {
             sqlx::query(
-                "SELECT tracks.track_id, tracks.recording_id, tracks.release_id, tracks.title, tracks.duration_ms, tracks.disc_number, tracks.track_number, tracks.playable, releases.title AS release_title FROM tracks LEFT JOIN releases ON releases.release_id = tracks.release_id AND releases.user_id = tracks.user_id WHERE tracks.user_id = ? AND (? IS NULL OR EXISTS (SELECT 1 FROM track_artists JOIN artists ON artists.user_id = track_artists.user_id AND artists.artist_id = track_artists.artist_id WHERE track_artists.user_id = tracks.user_id AND track_artists.track_id = tracks.track_id AND artists.normalized_name LIKE ? ESCAPE '\\')) AND (? IS NULL OR releases.normalized_title LIKE ? ESCAPE '\\') ORDER BY tracks.imported_at DESC, tracks.track_id LIMIT ?",
+                "SELECT tracks.track_id, tracks.recording_id, tracks.release_id, tracks.title, tracks.duration_ms, tracks.disc_number, tracks.track_number, tracks.playable, releases.title AS release_title FROM tracks LEFT JOIN releases ON releases.release_id = tracks.release_id AND releases.user_id = tracks.user_id WHERE tracks.user_id = ? AND (? IS NULL OR EXISTS (SELECT 1 FROM track_artists JOIN artists ON artists.user_id = track_artists.user_id AND artists.artist_id = track_artists.artist_id WHERE track_artists.user_id = tracks.user_id AND track_artists.track_id = tracks.track_id AND artists.normalized_name LIKE ? ESCAPE '\\')) AND (? IS NULL OR releases.normalized_title LIKE ? ESCAPE '\\') ORDER BY tracks.imported_at DESC, tracks.track_id LIMIT ? OFFSET ?",
             )
             .bind(self.user_text())
             .bind(normalized_artist.as_deref())
@@ -305,6 +307,7 @@ impl SqliteLibraryRepository {
             .bind(normalized_release.as_deref())
             .bind(release_pattern.as_deref())
             .bind(i64::from(limit))
+            .bind(i64::from(offset))
             .fetch_all(&self.pool)
             .await
             .map_err(db_error)?
@@ -315,19 +318,20 @@ impl SqliteLibraryRepository {
             let prefix_pattern = format!("{}%", escape_like(&normalized_text));
             if normalized_artist.is_none() && normalized_release.is_none() {
                 sqlx::query(
-                    "WITH ranked AS (SELECT library_fts.user_id, library_fts.track_id, library_fts.artist, library_fts.title, CASE WHEN library_fts.normalized_title = ? THEN 1 ELSE 0 END AS exact_title, CASE WHEN library_fts.normalized_title LIKE ? ESCAPE '\\' THEN 1 ELSE 0 END AS prefix_title, bm25(library_fts, 10.0, 5.0, 2.0) AS relevance FROM library_fts WHERE library_fts MATCH ? AND library_fts.user_id = ? ORDER BY exact_title DESC, prefix_title DESC, relevance, library_fts.artist COLLATE NOCASE, library_fts.title COLLATE NOCASE, library_fts.track_id LIMIT ?) SELECT tracks.track_id, tracks.recording_id, tracks.release_id, tracks.title, tracks.duration_ms, tracks.disc_number, tracks.track_number, tracks.playable, releases.title AS release_title FROM ranked JOIN tracks ON tracks.user_id = ranked.user_id AND tracks.track_id = ranked.track_id LEFT JOIN releases ON releases.release_id = tracks.release_id AND releases.user_id = tracks.user_id ORDER BY ranked.exact_title DESC, ranked.prefix_title DESC, ranked.relevance, ranked.artist COLLATE NOCASE, ranked.title COLLATE NOCASE, ranked.track_id",
+                    "WITH ranked AS (SELECT library_fts.user_id, library_fts.track_id, library_fts.artist, library_fts.title, CASE WHEN library_fts.normalized_title = ? THEN 1 ELSE 0 END AS exact_title, CASE WHEN library_fts.normalized_title LIKE ? ESCAPE '\\' THEN 1 ELSE 0 END AS prefix_title, bm25(library_fts, 10.0, 5.0, 2.0) AS relevance FROM library_fts WHERE library_fts MATCH ? AND library_fts.user_id = ? ORDER BY exact_title DESC, prefix_title DESC, relevance, library_fts.artist COLLATE NOCASE, library_fts.title COLLATE NOCASE, library_fts.track_id LIMIT ? OFFSET ?) SELECT tracks.track_id, tracks.recording_id, tracks.release_id, tracks.title, tracks.duration_ms, tracks.disc_number, tracks.track_number, tracks.playable, releases.title AS release_title FROM ranked JOIN tracks ON tracks.user_id = ranked.user_id AND tracks.track_id = ranked.track_id LEFT JOIN releases ON releases.release_id = tracks.release_id AND releases.user_id = tracks.user_id ORDER BY ranked.exact_title DESC, ranked.prefix_title DESC, ranked.relevance, ranked.artist COLLATE NOCASE, ranked.title COLLATE NOCASE, ranked.track_id",
                 )
                 .bind(&normalized_text)
                 .bind(prefix_pattern)
                 .bind(match_expression)
                 .bind(self.user_text())
                 .bind(i64::from(limit))
+                .bind(i64::from(offset))
                 .fetch_all(&self.pool)
                 .await
                 .map_err(db_error)?
             } else {
                 sqlx::query(
-                    "SELECT tracks.track_id, tracks.recording_id, tracks.release_id, tracks.title, tracks.duration_ms, tracks.disc_number, tracks.track_number, tracks.playable, releases.title AS release_title FROM library_fts JOIN tracks ON tracks.user_id = library_fts.user_id AND tracks.track_id = library_fts.track_id LEFT JOIN releases ON releases.release_id = tracks.release_id AND releases.user_id = tracks.user_id WHERE library_fts MATCH ? AND library_fts.user_id = ? AND tracks.user_id = ? AND (? IS NULL OR EXISTS (SELECT 1 FROM track_artists JOIN artists ON artists.user_id = track_artists.user_id AND artists.artist_id = track_artists.artist_id WHERE track_artists.user_id = tracks.user_id AND track_artists.track_id = tracks.track_id AND artists.normalized_name LIKE ? ESCAPE '\\')) AND (? IS NULL OR releases.normalized_title LIKE ? ESCAPE '\\') ORDER BY CASE WHEN COALESCE(NULLIF(tracks.normalized_title, ''), lower(trim(tracks.title))) = ? THEN 1 ELSE 0 END DESC, CASE WHEN COALESCE(NULLIF(tracks.normalized_title, ''), lower(trim(tracks.title))) LIKE ? ESCAPE '\\' THEN 1 ELSE 0 END DESC, bm25(library_fts, 10.0, 5.0, 2.0), library_fts.artist COLLATE NOCASE, tracks.title COLLATE NOCASE, tracks.track_id LIMIT ?",
+                    "SELECT tracks.track_id, tracks.recording_id, tracks.release_id, tracks.title, tracks.duration_ms, tracks.disc_number, tracks.track_number, tracks.playable, releases.title AS release_title FROM library_fts JOIN tracks ON tracks.user_id = library_fts.user_id AND tracks.track_id = library_fts.track_id LEFT JOIN releases ON releases.release_id = tracks.release_id AND releases.user_id = tracks.user_id WHERE library_fts MATCH ? AND library_fts.user_id = ? AND tracks.user_id = ? AND (? IS NULL OR EXISTS (SELECT 1 FROM track_artists JOIN artists ON artists.user_id = track_artists.user_id AND artists.artist_id = track_artists.artist_id WHERE track_artists.user_id = tracks.user_id AND track_artists.track_id = tracks.track_id AND artists.normalized_name LIKE ? ESCAPE '\\')) AND (? IS NULL OR releases.normalized_title LIKE ? ESCAPE '\\') ORDER BY CASE WHEN COALESCE(NULLIF(tracks.normalized_title, ''), lower(trim(tracks.title))) = ? THEN 1 ELSE 0 END DESC, CASE WHEN COALESCE(NULLIF(tracks.normalized_title, ''), lower(trim(tracks.title))) LIKE ? ESCAPE '\\' THEN 1 ELSE 0 END DESC, bm25(library_fts, 10.0, 5.0, 2.0), library_fts.artist COLLATE NOCASE, tracks.title COLLATE NOCASE, tracks.track_id LIMIT ? OFFSET ?",
                 )
                 .bind(match_expression)
                 .bind(self.user_text())
@@ -339,6 +343,7 @@ impl SqliteLibraryRepository {
                 .bind(&normalized_text)
                 .bind(prefix_pattern)
                 .bind(i64::from(limit))
+                .bind(i64::from(offset))
                 .fetch_all(&self.pool)
                 .await
                 .map_err(db_error)?

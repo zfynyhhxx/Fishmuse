@@ -4,13 +4,22 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 import { getAppStatus } from "./lib/ipc";
 
-vi.mock("./lib/ipc", () => ({ getAppStatus: vi.fn() }));
+vi.mock("./lib/ipc", () => ({
+  getAppStatus: vi.fn(),
+  getPlaybackState: vi.fn(async () => ({ revision: 0, status: "unavailable", track_id: null, position_ms: 0, duration_ms: null })),
+  listenForPlaybackState: vi.fn(async () => vi.fn()),
+  listenForScanProgress: vi.fn(async () => vi.fn()),
+  listenForServiceState: vi.fn(async () => vi.fn()),
+  searchLibrary: vi.fn(async () => []),
+}));
 
 const mockedGetAppStatus = vi.mocked(getAppStatus);
 
 afterEach(cleanup);
 
 beforeEach(() => {
+  localStorage.clear();
+  window.history.replaceState({}, "", "#");
   mockedGetAppStatus.mockReset();
 });
 

@@ -31,7 +31,7 @@ async fn main() {
 
     for query in &queries {
         repository
-            .search_tracks(query.text, query.artist, query.release, 20)
+            .search_tracks(query.text, query.artist, query.release, 20, 0)
             .await
             .expect("warm search");
     }
@@ -40,7 +40,7 @@ async fn main() {
     for query in &queries {
         let started = Instant::now();
         repository
-            .search_tracks(query.text, query.artist, query.release, 20)
+            .search_tracks(query.text, query.artist, query.release, 20, 0)
             .await
             .expect("measured search");
         measurements.push((query, started.elapsed().as_secs_f64() * 1_000.0));

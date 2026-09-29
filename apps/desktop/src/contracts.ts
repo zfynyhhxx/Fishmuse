@@ -22,6 +22,42 @@ export type AppStatus = {
   ai: AIServiceState;
 };
 
+export type ServiceStateEvent = Pick<AppStatus, "playback" | "ai">;
+
+export type AISettings = {
+  configured: boolean;
+  provider: string;
+  model: string;
+  service: AIServiceState;
+  budget: {
+    spent_microunits: number;
+    warning_at_microunits: number;
+    hard_stop_at_microunits: number;
+  };
+};
+
+export type TrackSummary = {
+  id: string;
+  recording_id: string;
+  title: string;
+  artist_names: string[];
+  release_title: string | null;
+  duration_ms: number | null;
+  disc_number: number | null;
+  track_number: number | null;
+  playable: boolean;
+};
+
+export type LibraryItem = {
+  track: TrackSummary;
+  release: {
+    id: string;
+    title: string;
+    artist_names: string[];
+  } | null;
+  provenance: Array<"local" | "music_brainz" | "apple_music" | "net_ease">;
+};
+
 export type SelectedEntityContext =
   | { entity_type: "artist"; artist_id: string; display_name: string }
   | { entity_type: "release"; release_id: string; display_title: string }
@@ -81,6 +117,7 @@ export type SearchQuery = {
   artist: string | null;
   release: string | null;
   limit: number;
+  offset: number;
 };
 
 export type PlaybackCommand =

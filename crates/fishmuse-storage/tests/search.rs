@@ -118,7 +118,7 @@ async fn searches_title_artist_release_and_combined_filters() {
         ("Ocean", Some("alpha"), Some("deep")),
     ] {
         let results = repository
-            .search_tracks(text, artist, release, 20)
+            .search_tracks(text, artist, release, 20, 0)
             .await
             .expect("search");
         assert_eq!(results.len(), 1, "query {text}");
@@ -146,14 +146,14 @@ async fn escapes_fts_syntax_and_never_reads_another_users_tracks() {
     let repository = SqliteLibraryRepository::new(database.pool().clone(), user);
 
     let results = repository
-        .search_tracks("\" OR * - NEAR()", None, None, 20)
+        .search_tracks("\" OR * - NEAR()", None, None, 20, 0)
         .await
         .expect("special characters are data, not FTS syntax");
 
     assert!(results.is_empty());
     assert!(
         repository
-            .search_tracks("Ocean", None, None, 20)
+            .search_tracks("Ocean", None, None, 20, 0)
             .await
             .expect("isolated search")
             .is_empty()
@@ -181,18 +181,25 @@ async fn empty_query_uses_recent_import_order_and_limits_are_defaulted_and_cappe
     let repository = SqliteLibraryRepository::new(database.pool().clone(), user);
 
     let defaulted = repository
-        .search_tracks("", None, None, 0)
+        .search_tracks("", None, None, 0, 0)
         .await
         .expect("default limit");
     let capped = repository
-        .search_tracks("", None, None, u32::MAX)
+        .search_tracks("", None, None, u32::MAX, 0)
         .await
         .expect("capped limit");
+    let second_page = repository
+        .search_tracks("", None, None, 100, 100)
+        .await
+        .expect("second page");
 
     assert_eq!(defaulted.len(), 20);
     assert_eq!(defaulted[0].title, "Synthetic 104");
     assert_eq!(defaulted[19].title, "Synthetic 085");
     assert_eq!(capped.len(), 100);
+    assert_eq!(second_page.len(), 5);
+    assert_eq!(second_page[0].title, "Synthetic 004");
+    assert_eq!(second_page[4].title, "Synthetic 000");
 }
 
 #[tokio::test]
@@ -235,7 +242,7 @@ async fn ranking_is_exact_then_prefix_then_bm25_with_stable_artist_title_and_id_
     let repository = SqliteLibraryRepository::new(database.pool().clone(), user);
 
     let results = repository
-        .search_tracks("Ocean", None, None, 20)
+        .search_tracks("Ocean", None, None, 20, 0)
         .await
         .expect("ranked search");
     let ordered: Vec<_> = results.iter().map(|track| track.id).collect();
