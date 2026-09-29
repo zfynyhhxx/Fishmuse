@@ -215,6 +215,8 @@ Append commands only when they were actually run. Record failures as failures; d
 - Tier 3: PASS based on the recorded 2026-09-29 v2.24.3 x64 live run (maximum sampled ACK 71 ms, restart, replay, snapshots/events, and exact wrong-SID access denial).
 - Tier 4 preflight: `cmdkey /list` found no `FishMuse/DeepSeek` credential and the fixed `%LOCALAPPDATA%\FishMuse\live-tests\deepseek-budget.json` ledger does not exist. No request or paid spend occurred; Tier 4 remains pending and prevents a V0.1 completion claim.
 - Final single-thread review (repository policy forbids review subagents): no Critical/Important issue remained after moving budget enforcement to the fixed Rust-side ledger, rechecking warning/hard-stop gates between live requests, making the foobar wrapper build its probe, and constraining secret-scan fixture exemptions. The deliberate declined item is execution of Tier 4 without a configured credential/operator confirmation.
+- Fresh-checkout command: clone the repository without local object sharing, detach at Task 15 commit `c5fa4af`, then run `pnpm install --frozen-lockfile`, `scripts/test-unit.ps1`, `scripts/test-e2e.ps1`, and `scripts/check-secrets.ps1`.
+- Fresh-checkout result: PASS. The complete Rust/static/frontend unit gate passed, React passed 14/14, real Tauri/WebView2 E2E passed 4/4, and the secret scan covered 238 files. The checkout remained content-clean; a Windows `core.autocrlf` stat-only indication on `Cargo.toml` had raw, filtered, and index blob hashes all equal to `45af356b6776ec824cf62bc82fa4484d6d56e0ad` and cleared when the disposable clone index was normalized.
 
 ## Entry format
 
@@ -228,11 +230,11 @@ Append commands only when they were actually run. Record failures as failures; d
 ## V0.1 gates
 
 - [ ] Tasks 1–15 completed with reviewable local commits
-- [ ] Working tree clean
-- [ ] Tier 1/2 pass from a fresh checkout
-- [ ] Tier 3 passes with foobar2000 v2.24.3 x64 and the recorded SDK
+- [x] Working tree clean
+- [x] Tier 1/2 pass from a fresh checkout
+- [x] Tier 3 passes with foobar2000 v2.24.3 x64 and the recorded SDK
 - [ ] Tier 4 passes with `deepseek-flash` below the hard budget stop
 - [ ] Twelve acceptance items have commands, evidence, and results
-- [ ] No high-priority security or data-integrity issue remains
+- [x] No high-priority security or data-integrity issue remains
 - [ ] Chinese setup, plugin, and API documentation is reproducible
-- [ ] README and implementation agree on V0.1 exclusions and platform scope
+- [x] README and implementation agree on V0.1 exclusions and platform scope

@@ -8,7 +8,7 @@ Last updated: 2026-09-30
 - Head before Task 15: `2908ac9 feat(ui): add streaming AI chat and now playing`
 - Completed implementation tasks: Tasks 1–14, including Task 11.5
 - Current task: Task 15 automation, CI, live gates, documentation, and automatic acceptance implemented
-- Remaining release gate: Tier 4 real DeepSeek acceptance and final clean-tree confirmation
+- Remaining release gate: Tier 4 real DeepSeek acceptance
 
 ## Next autonomous action
 
@@ -26,4 +26,4 @@ After the operator saves a DeepSeek key through Settings, explicitly run `script
 
 ## Completion state
 
-V0.1 code and automatic acceptance are complete, but the release definition is not yet complete because Tier 4 has no credential or real result. Tier 1/2 pass, the 100k P95 is 168.540 ms, Tier 3 is recorded PASS, and the production debug binary builds. No real DeepSeek request or paid spend was used.
+V0.1 code and automatic acceptance are complete, but the release definition is not yet complete because Tier 4 has no credential or real result. Tier 1/2 pass from a no-local-object-sharing fresh clone at `c5fa4af`, the 100k P95 is 168.540 ms, Tier 3 is recorded PASS, the production debug binary builds, and the committed worktree is clean. No real DeepSeek request or paid spend was used.
