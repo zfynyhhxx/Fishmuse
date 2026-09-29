@@ -1,6 +1,7 @@
 //! Provider-neutral AI streaming, credentials, and budget controls.
 
 mod agent;
+mod application;
 mod context;
 mod cost;
 mod credentials;
@@ -12,6 +13,13 @@ mod redaction;
 pub mod tools;
 
 pub use agent::{AgentEvent, AgentLimits, AgentRunner, AgentTurnRequest, TurnFailureReason};
+pub use application::{
+    AI_APPLICATION_CONTRACT_VERSION, AIApplicationEvent, AIApplicationEventStream,
+    AIApplicationFailureReason, AIEventEnvelope, AIService, AIServiceState, AIServiceStatus,
+    AIServiceTurn, AIServiceTurnRequest, AITurnId, AgentAIService, ContextEnvelope,
+    CurrentViewContext, NowPlayingContext, NowPlayingStatus, SelectedEntityContext,
+    ServiceImplementation,
+};
 pub use context::{
     AgentStore, AgentToolResult, AgentTurnRecord, AgentTurnStatus, ConversationAgentStore,
 };

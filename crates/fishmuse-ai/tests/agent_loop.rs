@@ -53,6 +53,7 @@ fn request(cancellation: CancellationToken) -> AgentTurnRequest {
         user_id: UserId::new(),
         conversation_id: ConversationId::new(),
         user_text: "播放一些音乐".to_owned(),
+        context: None,
         cancellation,
     }
 }

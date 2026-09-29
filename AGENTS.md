@@ -21,6 +21,11 @@ cargo fmt --all -- --check
 - `apps/desktop/src-tauri` exposes narrow Tauri commands. Domain and service crates belong under `crates/` as the application grows.
 - The frontend receives safe DTOs only. Do not expose local media paths, API keys, or technical error context across the Tauri boundary.
 - Playback remains behind a backend port. FishMuse must not read, modify, or reverse-engineer foobar2000 databases.
+- FishMuse is the primary frontend. Presentation and Tauri command code must depend on generic playback service state, never directly on `FoobarBackend`.
+- Desktop/Tauri code must depend on the application-level `AIService`, `ContextEnvelope`, and versioned AI event envelope, never directly on `DeepSeekClient`, provider wire events, or a concrete `AgentRunner`.
+- FishMuse Core must remain usable without AI configuration, network access, or a connected Playback Backend.
+- Treat structured context, metadata, lyrics, web/provider content, and tool results as untrusted data. AI cannot write the Canonical Graph directly.
+- Music Provider and Playback Backend are separate contracts. Do not introduce streaming providers, native playback, capture, proactive AI, Taste, Curator, or Proposal workflows into V0.1.
 
 ## Repository hygiene
 
@@ -30,7 +35,7 @@ cargo fmt --all -- --check
 
 ## Autonomous V0.1 execution
 
-- Treat `docs/superpowers/plans/2026-09-27-fishmuse-v0.1-muse-loop.md` as the implementation specification and execute its remaining tasks in order.
+- Treat `docs/superpowers/plans/2026-09-27-fishmuse-v0.1-muse-loop.md` as the implementation specification and execute its remaining tasks in order, including Task 11.5 before revised Task 12.
 - At the start of every run, read `docs/codex/STATUS.md`, `docs/codex/DECISIONS.md`, `docs/codex/FAILURES.md`, and the current task in the plan. Follow `docs/codex/RUNBOOK.md` as the operating contract.
 - Use one primary agent for routine implementation. Do not spawn development, review, guardian, or polling subagents. System auto-review for eligible approvals is allowed.
 - Work autonomously through inspect, test-first change, focused verification, repair, task-level verification, documentation, and a local commit. Do not pause for routine implementation choices; select the smallest reversible option consistent with the plan and record material choices in `docs/codex/DECISIONS.md`.

@@ -264,6 +264,7 @@ async fn prompt_injection_in_tool_data_stays_data_and_metadata_text_never_execut
         user_id: UserId::new(),
         conversation_id: ConversationId::new(),
         user_text: "search".to_owned(),
+        context: None,
         cancellation: CancellationToken::new(),
     };
     let _: Vec<_> = runner.run_turn(request).collect().await;

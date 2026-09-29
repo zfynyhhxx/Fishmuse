@@ -8,13 +8,13 @@ Last updated: 2026-09-29
 - Head before Task 7: `877d1ba chore(codex): add autonomous v0.1 workflow`
 - Working tree before Task 7: clean
 - Autonomous Codex configuration: prepared and structurally verified on 2026-09-28
-- Completed implementation tasks: Task 1–11
-- Current task: paused after the completed and published Task 11 checkpoint, per user instruction
-- Remaining implementation tasks: Task 12–15
+- Completed implementation tasks: Task 1–11 and Task 11.5
+- Current task: revised Task 12, ready for Step 1 command-contract and frontend IPC RED tests after the Task 11.5 commit
+- Remaining implementation tasks: revised Task 12–15
 
 ## Next autonomous action
 
-When the user resumes work, start Task 12 Step 1 from the exact plan and add the failing desktop command-contract and frontend IPC tests before production implementation. Do not use a real DeepSeek key or spend without the explicit live-gate authorization required by the plan.
+Start revised Task 12 Step 1 with failing desktop command-contract and frontend IPC tests. AppState must depend on `Arc<dyn AIService>`, accept optional `ContextEnvelope`, emit the versioned AI envelope, and expose generic playback/AI service state. Do not start any deferred Curator, Taste, proactive AI, capture, Provider, MusicBrainz, embedding, Native Playback, or Proposal feature. Do not use a real DeepSeek key or spend without the explicit live-gate authorization required by the plan.
 
 ## Current blocker
 
@@ -30,4 +30,4 @@ When the user resumes work, start Task 12 Step 1 from the exact plan and add the
 
 ## Completion state
 
-V0.1 is not complete. Tasks 8–11 are complete and public. Task 11 adds the bounded Agent loop, exact nine-tool registry, strict argument and UUIDv7 validation, local TrackId-to-PlayableSource resolution, generated OperationId routing through PlaybackManager, untrusted-tool-result redaction, current-conversation context loading, and safe provider/model/status/usage/cost persistence. All 35 regular AI tests pass, the one explicitly ignored reversible credential test remains separately verified, the complete workspace test suite passes, and strict related-crate all-target clippy, workspace fmt, diff, and public-boundary checks pass. No real DeepSeek credential or paid request was used. Tasks 12–15 remain unfinished.
+V0.1 is not complete. Tasks 8–11 are complete and public. Task 11.5 adds the provider-neutral `AIService` facade over `AgentRunner`, safe optional versioned `ContextEnvelope`, UUIDv7 turn identity, strictly sequenced versioned application events with explicit event type/payload, and generic AI/playback service state. Context paths are redacted and structured context is labeled untrusted data; all existing Agent/tool/security/playback behavior remains unchanged. Revised Tasks 12–15 remain unfinished. No real DeepSeek credential or paid request was used.

@@ -151,6 +151,28 @@ Append commands only when they were actually run. Record failures as failures; d
 - External/privacy note: no real DeepSeek key was loaded, no paid call was made, and tool/context payloads contain logical IDs and redacted summaries rather than local media paths or raw database data.
 - Public-boundary audit: all 25 modified/untracked candidates are Rust, TOML, lockfile, or durable Markdown state; no binary/NUL content, supplied account email, authorized foobar installation path, workspace absolute path, private-key marker, or API-key-like token was found.
 
+### 2026-09-29 — Task 11.5 architecture baseline and documentation checkpoint
+
+- Commit or working state: clean published `9f74397` Task 11 baseline on `feature/fishmuse-v0.1-muse-loop` before Architecture Contract Freeze documentation edits.
+- Command: `pnpm install --frozen-lockfile`; desktop test, typecheck, and lint commands from `AGENTS.md`; `cargo check --workspace`; `cargo test --workspace`; `cargo clippy --workspace --all-targets -- -D warnings`; `cargo fmt --all -- --check`.
+- Result: PASS. Dependencies were already current; frontend tests passed 2/2; every Rust workspace test and doc test passed with the one explicitly ignored reversible credential test; typecheck, lint, check, strict workspace Clippy, and fmt exited 0.
+- Design evidence: the approved architecture was written into both language specs and the main V0.1 plan; a focused Task 11.5 implementation plan now fixes the exact AIService, ContextEnvelope, versioned-event, generic-service-state, TDD, scope-exclusion, and verification contracts before production code changes.
+- External/privacy note: no real DeepSeek credential was loaded, no paid request was made, and no foobar installation or profile was modified.
+
+### 2026-09-29 — Task 11.5 Architecture Contract Freeze
+
+- Commit or working state: Task 11.5 source, contract tests, approved specs/roadmap, and durable state on the clean `9f74397` Task 11 base; unrelated mistaken Task 12 work was rolled back and its three content-identical Git stat entries were refreshed without changing content.
+- AI RED command: `cargo test -p fishmuse-ai --test application_contract`.
+- AI RED result: expected compile failure on the missing `AIService`, `ContextEnvelope`, versioned application event, turn-id, and generic state symbols. A later focused RED proved contract version 2 was incorrectly accepted before custom deserialization, and another proved event type/payload were nested behind an unstable internal field before the flattened application envelope mapping.
+- Playback RED command: `cargo test -p fishmuse-playback --test service_contract`.
+- Playback RED result: expected compile failure on missing `PlaybackServiceState`, `PlaybackServiceStatus`, and optional implementation diagnostics.
+- Focused GREEN: `cargo test -p fishmuse-ai --test application_contract` passed 5/5; `cargo test -p fishmuse-playback --test service_contract` passed 1/1. Tests cover optional redacted/untrusted structured context, unsupported-version rejection, UUIDv7 turn identity, strict sequence 1..N, top-level event type/payload JSON round-trip, fake-provider substitution through `Arc<dyn AIService>`, and provider/backend-neutral state serialization.
+- Regression command: `cargo test -p fishmuse-ai`; `cargo test -p fishmuse-playback`; `cargo test --workspace`.
+- Regression result: PASS. All regular AI, playback, workspace, and doc tests passed; the reversible Windows credential integration test remains explicitly ignored by ordinary runs and was not executed.
+- Static command: `cargo clippy -p fishmuse-ai -p fishmuse-playback --all-targets -- -D warnings`; `cargo fmt --all -- --check`; `git diff --check`.
+- Static result: PASS after applying repository formatting; zero Clippy warnings/errors and zero formatting/diff errors. Line-ending notices are informational only.
+- Scope/privacy result: no new tool, provider, graph write, capture, proactive AI, Curator, Taste, embedding, MusicBrainz, streaming Provider, Native Playback, or Proposal implementation was added. No real credential, paid request, foobar profile, binary, database, media, or local machine path entered the candidate diff.
+
 ## Entry format
 
 ### YYYY-MM-DD — task/checkpoint
