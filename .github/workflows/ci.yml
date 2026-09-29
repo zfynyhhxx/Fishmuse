@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      CARGO_INCREMENTAL: "0"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.98.1
+          components: clippy,rustfmt
+      - name: Install JavaScript dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+      - name: Lint Rust
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Test Rust
+        run: cargo test --workspace
+      - name: Lint desktop
+        run: pnpm --filter @fishmuse/desktop lint
+      - name: Type-check desktop
+        run: pnpm --filter @fishmuse/desktop typecheck
+      - name: Test desktop components
+        run: pnpm --filter @fishmuse/desktop test --run
+      - name: Test desktop E2E
+        run: pnpm --filter @fishmuse/desktop e2e
+      - name: Scan repository for secrets
+        shell: powershell
+        run: ./scripts/check-secrets.ps1

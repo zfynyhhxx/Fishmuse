@@ -17,6 +17,26 @@ import {
   type TurnStarted,
 } from "../contracts";
 
+declare global {
+  interface Window {
+    __FISHMUSE_E2E_COMMANDS__?: Record<string, unknown>;
+    __FISHMUSE_E2E_CALLS__?: Record<string, unknown[]>;
+  }
+}
+
+function invokeCommand<T>(command: string, args?: Record<string, unknown>): Promise<T> {
+  if (import.meta.env.MODE === "e2e") {
+    const commands = window.__FISHMUSE_E2E_COMMANDS__;
+    if (!commands || !(command in commands)) {
+      return Promise.reject(new Error(`Missing E2E command fake: ${command}`));
+    }
+    const calls = (window.__FISHMUSE_E2E_CALLS__ ??= {});
+    (calls[command] ??= []).push(args ?? null);
+    return Promise.resolve(structuredClone(commands[command]) as T);
+  }
+  return invoke<T>(command, args);
+}
+
 export const SCAN_PROGRESS_EVENT = "fishmuse://scan-progress";
 export const AI_EVENT = "fishmuse://ai-event";
 export const PLAYBACK_STATE_EVENT = "fishmuse://playback-state";
@@ -60,7 +80,7 @@ export async function startAITurn(
     onEvent(parseAIEventEnvelope(event.payload));
   });
   try {
-    const turn = await invoke<TurnStarted>("start_ai_turn", { request });
+    const turn = await invokeCommand<TurnStarted>("start_ai_turn", { request });
     return { turn, unlisten };
   } catch (error) {
     unlisten();
@@ -68,7 +88,7 @@ export async function startAITurn(
   }
 }
 
-export const getAppStatus = () => invoke<AppStatus>("get_app_status");
+export const getAppStatus = () => invokeCommand<AppStatus>("get_app_status");
 export const listenForScanProgress = (listener: (progress: ScanProgress) => void) =>
   listen<ScanProgress>(SCAN_PROGRESS_EVENT, (event) => listener(event.payload));
 export const listenForPlaybackState = (listener: (snapshot: PlaybackSnapshot) => void) =>
@@ -76,23 +96,23 @@ export const listenForPlaybackState = (listener: (snapshot: PlaybackSnapshot) =>
 export const listenForServiceState = (listener: (state: ServiceStateEvent) => void) =>
   listen<ServiceStateEvent>(SERVICE_STATE_EVENT, (event) => listener(event.payload));
 export const chooseLibraryFolders = () =>
-  invoke<string[]>("choose_library_folders");
+  invokeCommand<string[]>("choose_library_folders");
 export const startLibraryScan = (roots: string[]) =>
-  invoke<{ scan_id: string }>("start_library_scan", { roots });
+  invokeCommand<{ scan_id: string }>("start_library_scan", { roots });
 export const cancelLibraryScan = (scanId: string) =>
-  invoke<void>("cancel_library_scan", { scanId });
+  invokeCommand<void>("cancel_library_scan", { scanId });
 export const searchLibrary = (query: SearchQuery) =>
-  invoke<TrackSummary[]>("search_library", { query });
+  invokeCommand<TrackSummary[]>("search_library", { query });
 export const getLibraryItem = (trackId: string) =>
-  invoke<LibraryItem | null>("get_library_item", { trackId });
+  invokeCommand<LibraryItem | null>("get_library_item", { trackId });
 export const cancelAITurn = (turnId: string) =>
-  invoke<void>("cancel_ai_turn", { turnId });
+  invokeCommand<void>("cancel_ai_turn", { turnId });
 export const executePlayback = (command: PlaybackCommand) =>
-  invoke<PlaybackSnapshot>("execute_playback", { command });
+  invokeCommand<PlaybackSnapshot>("execute_playback", { command });
 export const getPlaybackState = () =>
-  invoke<PlaybackSnapshot>("get_playback_state");
+  invokeCommand<PlaybackSnapshot>("get_playback_state");
 export const configureDeepSeekKey = (apiKey: string) =>
-  invoke<void>("configure_deepseek_key", { apiKey: { api_key: apiKey } });
+  invokeCommand<void>("configure_deepseek_key", { apiKey: { api_key: apiKey } });
 export const deleteDeepSeekKey = () =>
-  invoke<void>("delete_deepseek_key");
-export const getAISettings = () => invoke<AISettings>("get_ai_settings");
+  invokeCommand<void>("delete_deepseek_key");
+export const getAISettings = () => invokeCommand<AISettings>("get_ai_settings");

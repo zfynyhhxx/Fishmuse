@@ -1,4 +1,4 @@
-#[cfg(windows)]
+#[cfg(all(windows, not(feature = "e2e")))]
 use std::{ffi::OsString, os::windows::ffi::OsStringExt, path::PathBuf, process::Command};
 use std::{
     path::Path,
@@ -6,20 +6,20 @@ use std::{
 };
 
 use async_trait::async_trait;
-#[cfg(not(windows))]
+#[cfg(any(not(windows), feature = "e2e"))]
 use fishmuse_ai::UnsupportedCredentialStore;
-#[cfg(windows)]
+#[cfg(all(windows, not(feature = "e2e")))]
 use fishmuse_ai::WindowsCredentialStore;
 use fishmuse_ai::{
     AIService, AIServiceState, AIServiceStatus, AgentAIService, AgentLimits, AgentRunner,
     ConversationAgentStore, CredentialStore, DeepSeekClient, DeepSeekConfig, MusicToolExecutor,
     ProviderId, ServiceImplementation as AIImplementation, ToolRegistry,
 };
-#[cfg(windows)]
+#[cfg(all(windows, not(feature = "e2e")))]
 use fishmuse_domain::MediaAssetId;
 use fishmuse_domain::{AppError, AppResult, ErrorCategory, ErrorCode};
 use fishmuse_library::{LibraryScanner, LoftyTagReader};
-#[cfg(windows)]
+#[cfg(all(windows, not(feature = "e2e")))]
 use fishmuse_playback::foobar::{FoobarBackend, FoobarConfig, MediaPathResolver};
 use fishmuse_playback::{
     PlaybackBackend, PlaybackBackendKind, PlaybackCommand, PlaybackEvent, PlaybackManager,
@@ -29,7 +29,7 @@ use fishmuse_playback::{
 use fishmuse_storage::{
     Database, SqliteConversationRepository, SqliteLibraryRepository, SqliteOperationStore,
 };
-#[cfg(windows)]
+#[cfg(all(windows, not(feature = "e2e")))]
 use sha2::{Digest, Sha256};
 use tauri::{Manager, RunEvent};
 use tokio::sync::broadcast;
@@ -222,7 +222,7 @@ async fn build_playback_service(
     Arc<dyn PlaybackApplicationService>,
     PlaybackServiceState,
 ) {
-    #[cfg(windows)]
+    #[cfg(all(windows, not(feature = "e2e")))]
     if let Ok(pipe_name) = current_user_pipe_name() {
         let resolver = Arc::new(SqliteMediaPathResolver {
             pool: pool.clone(),
@@ -258,13 +258,13 @@ fn playback_service_state() -> PlaybackServiceState {
     }
 }
 
-#[cfg(windows)]
+#[cfg(all(windows, not(feature = "e2e")))]
 struct FoobarPlaybackApplicationService {
     manager: PlaybackManager,
     backend: Arc<FoobarBackend>,
 }
 
-#[cfg(windows)]
+#[cfg(all(windows, not(feature = "e2e")))]
 #[async_trait]
 impl PlaybackApplicationService for FoobarPlaybackApplicationService {
     async fn execute(&self, command: PlaybackCommand) -> AppResult<PlaybackSnapshot> {
@@ -284,13 +284,13 @@ impl PlaybackApplicationService for FoobarPlaybackApplicationService {
     }
 }
 
-#[cfg(windows)]
+#[cfg(all(windows, not(feature = "e2e")))]
 struct SqliteMediaPathResolver {
     pool: sqlx::SqlitePool,
     user_id: fishmuse_domain::UserId,
 }
 
-#[cfg(windows)]
+#[cfg(all(windows, not(feature = "e2e")))]
 #[async_trait]
 impl MediaPathResolver for SqliteMediaPathResolver {
     async fn resolve(&self, media_asset_id: MediaAssetId) -> AppResult<PathBuf> {
@@ -319,7 +319,7 @@ impl MediaPathResolver for SqliteMediaPathResolver {
     }
 }
 
-#[cfg(windows)]
+#[cfg(all(windows, not(feature = "e2e")))]
 fn playback_path_error(code: ErrorCode, context: impl Into<String>) -> AppError {
     AppError {
         code,
@@ -331,7 +331,7 @@ fn playback_path_error(code: ErrorCode, context: impl Into<String>) -> AppError 
     }
 }
 
-#[cfg(windows)]
+#[cfg(all(windows, not(feature = "e2e")))]
 fn current_user_pipe_name() -> AppResult<String> {
     let output = Command::new("whoami.exe")
         .args(["/user", "/fo", "csv", "/nh"])
@@ -404,6 +404,10 @@ impl PlaybackBackend for DisconnectedPlaybackBackend {
 
 #[cfg(windows)]
 fn platform_credential_store() -> Arc<dyn CredentialStore> {
+    #[cfg(feature = "e2e")]
+    return Arc::new(UnsupportedCredentialStore);
+
+    #[cfg(not(feature = "e2e"))]
     Arc::new(WindowsCredentialStore::new())
 }
 
@@ -413,7 +417,12 @@ fn platform_credential_store() -> Arc<dyn CredentialStore> {
 }
 
 pub fn run() {
-    let app = tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    #[cfg(feature = "e2e")]
+    let builder = builder
+        .plugin(tauri_plugin_wdio::init())
+        .plugin(tauri_plugin_wdio_webdriver::init());
+    let app = builder
         .setup(|app| {
             let data_dir = app.path().app_data_dir()?;
             let events = Arc::new(TauriEventSink::new(app.handle().clone()));

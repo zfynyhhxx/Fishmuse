@@ -200,6 +200,22 @@ Append commands only when they were actually run. Record failures as failures; d
 - Behavior/privacy evidence: active turns survive Chat route unmounts; locally captured conversation plus UUIDv7 turn identity prevents cross-conversation delivery; the store buffers gaps but rejects duplicates, backward sequences, terminal tail events, and old turns. Tool result payloads, prompts, paths, and keys are never rendered. Provider/model and ledger-derived estimated spend are shown without returning a credential. Now Playing and MiniPlayer consume the same logical-ID-only playback store.
 - External/scope result: no real credential, provider request, paid spend, foobar profile, external installation, screenshot/capture, proactive AI, Curator, Taste, Music Provider, embedding, Native Playback, or Proposal feature was used or added.
 
+### 2026-09-30 — Task 15 automated acceptance and release-gate checkpoint
+
+- E2E RED evidence: the new WDIO/Tauri suite first failed 0/4 because production IPC imports bypassed the plugin's global mock interception. A first module-order repair still failed 0/4. The final feature-gated command seam keeps production `invoke` unchanged and records deterministic E2E calls; the next run passed 4/4 without increasing timeouts.
+- Command: `powershell -ExecutionPolicy Bypass -File scripts/test-unit.ps1`.
+- Result: PASS. Workspace fmt/check/all-target clippy/tests, desktop lint/typecheck, and 14/14 React tests passed. Ordinary workspace tests compile the two live harnesses but correctly leave the credential-mutating and real-service tests ignored.
+- Command: `powershell -ExecutionPolicy Bypass -File scripts/test-e2e.ps1`.
+- Result: PASS. 4/4 real Tauri/WebView2 paths passed: onboarding scan/search, Library playback/MiniPlayer, fake AI tool + streamed text, and AI playback + Now Playing synchronization. The feature build completed without warnings.
+- Command: `cargo bench -p fishmuse-storage --bench search_100k`.
+- Result: PASS. Warm FTS5 search over 100,000 synthetic tracks and 30 representative queries measured P95 168.540 ms against the 200 ms target; report written under ignored `target/`.
+- Command: `powershell -ExecutionPolicy Bypass -File scripts/check-secrets.ps1`.
+- Result: PASS. 238 tracked/untracked source files scanned; no credential pattern found.
+- Debug build: the plan's extra pnpm separator (`tauri:build -- --debug --no-bundle`) failed because Tauri forwarded `--debug` to Cargo after a literal `--`. Corrected command `pnpm --filter @fishmuse/desktop tauri:build --debug --no-bundle` passed and produced `target/debug/fishmuse-desktop.exe`.
+- Tier 3: PASS based on the recorded 2026-09-29 v2.24.3 x64 live run (maximum sampled ACK 71 ms, restart, replay, snapshots/events, and exact wrong-SID access denial).
+- Tier 4 preflight: `cmdkey /list` found no `FishMuse/DeepSeek` credential and the fixed `%LOCALAPPDATA%\FishMuse\live-tests\deepseek-budget.json` ledger does not exist. No request or paid spend occurred; Tier 4 remains pending and prevents a V0.1 completion claim.
+- Final single-thread review (repository policy forbids review subagents): no Critical/Important issue remained after moving budget enforcement to the fixed Rust-side ledger, rechecking warning/hard-stop gates between live requests, making the foobar wrapper build its probe, and constraining secret-scan fixture exemptions. The deliberate declined item is execution of Tier 4 without a configured credential/operator confirmation.
+
 ## Entry format
 
 ### YYYY-MM-DD — task/checkpoint

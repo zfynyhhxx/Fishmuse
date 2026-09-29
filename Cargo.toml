@@ -6,6 +6,7 @@ members = [
     "crates/fishmuse-library",
     "crates/fishmuse-playback",
     "crates/fishmuse-storage",
+    "tests/live",
 ]
 # Subsequent tasks add each crate under crates/ as its Cargo.toml is created.
 resolver = "2"

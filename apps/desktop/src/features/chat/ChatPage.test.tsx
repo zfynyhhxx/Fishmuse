@@ -86,7 +86,7 @@ describe("Ask FishMuse", () => {
         payload: {
           id: "tool-1",
           name: "search_library",
-          result: { path: "C:\\Users\\private\\Music", api_key: "never-render" },
+          result: { path: "C:\\Users\\private\\Music", api_key: "never-render" }, // secret-scan: allow-fixture
         },
       }));
       publish?.(event(TURN_IDS[0], 6, {

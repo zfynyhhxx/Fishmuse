@@ -1,0 +1,25 @@
+{
+  "productName": "FishMuse E2E",
+  "identifier": "com.fishmuse.desktop.e2e",
+  "build": {
+    "beforeBuildCommand": "pnpm build:e2e"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "security": {
+      "capabilities": [
+        {
+          "identifier": "e2e",
+          "description": "WebdriverIO capability compiled only for the isolated E2E application.",
+          "windows": ["main"],
+          "permissions": [
+            "core:default",
+            "core:window:default",
+            "wdio:default",
+            "wdio-webdriver:default"
+          ]
+        }
+      ]
+    }
+  }
+}
