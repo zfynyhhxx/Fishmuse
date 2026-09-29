@@ -1,5 +1,10 @@
 #[cfg(all(windows, not(feature = "e2e")))]
-use std::{ffi::OsString, os::windows::ffi::OsStringExt, path::PathBuf, process::Command};
+use std::{
+    ffi::{OsStr, OsString},
+    os::windows::ffi::{OsStrExt, OsStringExt},
+    path::PathBuf,
+    process::Command,
+};
 use std::{
     path::Path,
     sync::{Arc, RwLock},
@@ -43,7 +48,7 @@ use commands::{
     ai::{cancel_ai_turn, start_ai_turn},
     choose_library_folders, get_app_status,
     library::{cancel_library_scan, get_library_item, search_library, start_library_scan},
-    playback::{execute_playback, get_playback_state},
+    playback::{execute_playback, get_playback_state, launch_playback_backend},
     settings::{configure_deepseek_key, delete_deepseek_key, get_ai_settings},
 };
 use events::TauriEventSink;
@@ -267,6 +272,12 @@ struct FoobarPlaybackApplicationService {
 #[cfg(all(windows, not(feature = "e2e")))]
 #[async_trait]
 impl PlaybackApplicationService for FoobarPlaybackApplicationService {
+    async fn launch(&self) -> AppResult<()> {
+        launch_foobar2000()?;
+        self.backend.reconnect_now();
+        Ok(())
+    }
+
     async fn execute(&self, command: PlaybackCommand) -> AppResult<PlaybackSnapshot> {
         self.manager.execute(command).await
     }
@@ -282,6 +293,43 @@ impl PlaybackApplicationService for FoobarPlaybackApplicationService {
     fn subscribe(&self) -> Option<broadcast::Receiver<PlaybackEvent>> {
         Some(self.backend.subscribe())
     }
+}
+
+#[cfg(all(windows, not(feature = "e2e")))]
+fn launch_foobar2000() -> AppResult<()> {
+    use std::ptr::null_mut;
+    use windows_sys::Win32::UI::{Shell::ShellExecuteW, WindowsAndMessaging::SW_SHOWNORMAL};
+
+    let verb = OsStr::new("open")
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect::<Vec<_>>();
+    let executable = OsStr::new("foobar2000.exe")
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect::<Vec<_>>();
+    // SAFETY: both strings are NUL-terminated and remain alive for the duration of the call.
+    let result = unsafe {
+        ShellExecuteW(
+            null_mut(),
+            verb.as_ptr(),
+            executable.as_ptr(),
+            null_mut(),
+            null_mut(),
+            SW_SHOWNORMAL,
+        )
+    };
+    if result as isize <= 32 {
+        return Err(AppError {
+            code: ErrorCode::BackendUnavailable,
+            category: ErrorCategory::Playback,
+            user_message: "foobar2000 could not be started.".to_owned(),
+            retryable: true,
+            suggested_action: Some("install_foobar2000".to_owned()),
+            technical_context: Some(format!("ShellExecuteW returned {}", result as isize)),
+        });
+    }
+    Ok(())
 }
 
 #[cfg(all(windows, not(feature = "e2e")))]
@@ -444,6 +492,7 @@ pub fn run() {
             cancel_ai_turn,
             execute_playback,
             get_playback_state,
+            launch_playback_backend,
         ])
         .build(tauri::generate_context!())
         .expect("error while building FishMuse desktop application");

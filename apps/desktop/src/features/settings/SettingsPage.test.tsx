@@ -6,6 +6,7 @@ import {
   configureDeepSeekKey,
   getAISettings,
   getAppStatus,
+  launchPlaybackBackend,
 } from "../../lib/ipc";
 
 vi.mock("../../lib/ipc", () => ({
@@ -13,6 +14,7 @@ vi.mock("../../lib/ipc", () => ({
   deleteDeepSeekKey: vi.fn(),
   getAISettings: vi.fn(),
   getAppStatus: vi.fn(),
+  launchPlaybackBackend: vi.fn(),
   getPlaybackState: vi.fn(async () => ({ revision: 0, status: "unavailable", track_id: null, position_ms: 0, duration_ms: null })),
   listenForPlaybackState: vi.fn(async () => vi.fn()),
   listenForScanProgress: vi.fn(async () => vi.fn()),
@@ -52,6 +54,7 @@ beforeEach(() => {
     },
   });
   vi.mocked(configureDeepSeekKey).mockResolvedValue();
+  vi.mocked(launchPlaybackBackend).mockResolvedValue();
 });
 
 describe("settings", () => {
@@ -74,5 +77,14 @@ describe("settings", () => {
       expect((keyInput as HTMLInputElement).value).toBe("");
     });
     expect(document.body.textContent).not.toContain("sk-super-secret");
+  });
+
+  it("launches foobar2000 from the disconnected playback panel", async () => {
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Start foobar2000" }));
+
+    await waitFor(() => expect(launchPlaybackBackend).toHaveBeenCalledOnce());
+    expect(screen.getByRole("status").textContent).toMatch(/waiting for the FishMuse component/i);
   });
 });

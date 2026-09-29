@@ -1,7 +1,12 @@
 import { useEffect, useState } from "react";
 
 import type { AISettings } from "../../contracts";
-import { configureDeepSeekKey, deleteDeepSeekKey, getAISettings } from "../../lib/ipc";
+import {
+  configureDeepSeekKey,
+  deleteDeepSeekKey,
+  getAISettings,
+  launchPlaybackBackend,
+} from "../../lib/ipc";
 import { useAppStore } from "../../state/appStore";
 
 const titleCase = (value: string) => value.charAt(0).toUpperCase() + value.slice(1);
@@ -11,6 +16,7 @@ export function SettingsPage() {
   const [settings, setSettings] = useState<AISettings | null>(null);
   const [apiKey, setApiKey] = useState("");
   const [notice, setNotice] = useState<string | null>(null);
+  const [launchingPlayback, setLaunchingPlayback] = useState(false);
 
   const refresh = async () => setSettings(await getAISettings());
   useEffect(() => {
@@ -42,6 +48,19 @@ export function SettingsPage() {
     setApiKey("");
     setNotice("API key deleted.");
     await Promise.all([refresh(), refreshStatus()]);
+  };
+
+  const startPlayback = async () => {
+    setLaunchingPlayback(true);
+    try {
+      await launchPlaybackBackend();
+      setNotice("foobar2000 started. Waiting for the FishMuse component to connect.");
+      await refreshStatus();
+    } catch {
+      setNotice("foobar2000 could not be started. Confirm it is installed and try again.");
+    } finally {
+      setLaunchingPlayback(false);
+    }
   };
 
   const budgetWarning = settings?.budget &&
@@ -84,7 +103,9 @@ export function SettingsPage() {
         <p>Playback backend: {playback}</p>
         <p>Status: {status.playback.status}</p>
         {status.playback.status !== "ready" ? (
-          <button type="button" onClick={() => setNotice("Start foobar2000 and confirm the FishMuse component is installed.")}>Start foobar2000</button>
+          <button type="button" disabled={launchingPlayback} onClick={() => void startPlayback()}>
+            {launchingPlayback ? "Starting foobar2000…" : "Start foobar2000"}
+          </button>
         ) : null}
       </article>
       {notice ? <p role="status">{notice}</p> : null}

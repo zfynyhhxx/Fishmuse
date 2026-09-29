@@ -240,10 +240,16 @@ impl LibraryScanService for BlockingScanner {
 
 struct FakePlayback {
     shutdown: Arc<AtomicBool>,
+    launched: Arc<AtomicBool>,
 }
 
 #[async_trait]
 impl PlaybackApplicationService for FakePlayback {
+    async fn launch(&self) -> AppResult<()> {
+        self.launched.store(true, Ordering::SeqCst);
+        Ok(())
+    }
+
     async fn execute(&self, command: PlaybackCommand) -> AppResult<PlaybackSnapshot> {
         let track_id = match command {
             PlaybackCommand::Play { source, .. } => Some(source.track_id),
@@ -371,6 +377,7 @@ async fn test_state(
     Arc<AppState>,
     Arc<MemoryEventSink>,
     Arc<AtomicBool>,
+    Arc<AtomicBool>,
     sqlx::SqlitePool,
 ) {
     let database = Database::open_in_memory().await.expect("database");
@@ -378,6 +385,7 @@ async fn test_state(
     let user_id = database.ensure_local_user().await.expect("local user");
     let events = Arc::new(MemoryEventSink::default());
     let playback_shutdown = Arc::new(AtomicBool::new(false));
+    let playback_launched = Arc::new(AtomicBool::new(false));
     let state = AppState::new(
         database,
         user_id,
@@ -385,6 +393,7 @@ async fn test_state(
         Arc::new(FakeLibrary),
         Arc::new(FakePlayback {
             shutdown: playback_shutdown.clone(),
+            launched: playback_launched.clone(),
         }),
         PlaybackServiceState {
             status: PlaybackServiceStatus::Ready,
@@ -394,14 +403,20 @@ async fn test_state(
         Arc::new(MemoryCredentials::default()),
         events.clone(),
     );
-    (state, events, playback_shutdown, pool)
+    (state, events, playback_shutdown, playback_launched, pool)
 }
 
 #[tokio::test]
 async fn fake_services_preserve_events_cancellation_and_shutdown_contracts() {
     let saw_context = Arc::new(AtomicBool::new(false));
-    let (state, events, playback_shutdown, _) =
+    let (state, events, playback_shutdown, playback_launched, _) =
         test_state(Arc::new(FakeAI::ready(saw_context.clone()))).await;
+
+    state
+        .launch_playback_backend()
+        .await
+        .expect("launch playback backend");
+    assert!(playback_launched.load(Ordering::SeqCst));
 
     let scan = state
         .start_scan(vec![
@@ -483,7 +498,7 @@ async fn fake_services_preserve_events_cancellation_and_shutdown_contracts() {
 
 #[tokio::test]
 async fn ai_storage_failure_is_not_reported_as_a_music_tool_failure() {
-    let (state, events, _, _) = test_state(Arc::new(StorageFailureAI)).await;
+    let (state, events, _, _, _) = test_state(Arc::new(StorageFailureAI)).await;
     state
         .start_ai_turn(StartTurnDto {
             conversation_id: ConversationId::new(),
@@ -524,7 +539,7 @@ async fn ai_storage_failure_is_not_reported_as_a_music_tool_failure() {
 
 #[tokio::test]
 async fn unavailable_ai_does_not_disable_core_status_or_library_search() {
-    let (state, _, _, _) = test_state(Arc::new(
+    let (state, _, _, _, _) = test_state(Arc::new(
         fishmuse_desktop::state::UnavailableAIService::new(false),
     ))
     .await;
@@ -561,7 +576,7 @@ async fn unavailable_ai_does_not_disable_core_status_or_library_search() {
 
 #[tokio::test]
 async fn ai_settings_reports_persisted_spend_and_budget_thresholds() {
-    let (state, _, _, pool) = test_state(Arc::new(
+    let (state, _, _, _, pool) = test_state(Arc::new(
         fishmuse_desktop::state::UnavailableAIService::new(false),
     ))
     .await;

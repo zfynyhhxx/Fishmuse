@@ -21,3 +21,8 @@ pub async fn get_playback_state(
 ) -> Result<PlaybackSnapshotDto, CommandError> {
     state.playback_snapshot().await
 }
+
+#[tauri::command]
+pub async fn launch_playback_backend(state: State<'_, Arc<AppState>>) -> Result<(), CommandError> {
+    state.launch_playback_backend().await
+}

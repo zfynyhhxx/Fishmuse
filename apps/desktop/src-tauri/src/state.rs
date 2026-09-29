@@ -249,6 +249,17 @@ where
 
 #[async_trait]
 pub trait PlaybackApplicationService: Send + Sync {
+    async fn launch(&self) -> AppResult<()> {
+        Err(AppError {
+            code: ErrorCode::BackendUnavailable,
+            category: ErrorCategory::Playback,
+            user_message: "The playback backend could not be started.".to_owned(),
+            retryable: true,
+            suggested_action: Some("install_or_start_playback_backend".to_owned()),
+            technical_context: None,
+        })
+    }
+
     async fn execute(&self, command: PlaybackCommand) -> AppResult<PlaybackSnapshot>;
     async fn snapshot(&self) -> AppResult<PlaybackSnapshot>;
     async fn shutdown(&self);
@@ -630,6 +641,10 @@ impl AppState {
             .await
             .map(Into::into)
             .map_err(Into::into)
+    }
+
+    pub async fn launch_playback_backend(&self) -> Result<(), CommandError> {
+        self.playback.launch().await.map_err(Into::into)
     }
 
     pub async fn configure_ai_key(&self, secret: SecretStringDto) -> Result<(), CommandError> {
