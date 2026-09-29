@@ -218,6 +218,17 @@ Append commands only when they were actually run. Record failures as failures; d
 - Fresh-checkout command: clone the repository without local object sharing, detach at Task 15 commit `c5fa4af`, then run `pnpm install --frozen-lockfile`, `scripts/test-unit.ps1`, `scripts/test-e2e.ps1`, and `scripts/check-secrets.ps1`.
 - Fresh-checkout result: PASS. The complete Rust/static/frontend unit gate passed, React passed 14/14, real Tauri/WebView2 E2E passed 4/4, and the secret scan covered 238 files. The checkout remained content-clean; a Windows `core.autocrlf` stat-only indication on `Cargo.toml` had raw, filtered, and index blob hashes all equal to `45af356b6776ec824cf62bc82fa4484d6d56e0ad` and cleared when the disposable clone index was normalized.
 
+### 2026-09-30 — Tier 4 completion and final V0.1 regression
+
+- Operator authorization: the user saved the DeepSeek key through FishMuse Settings and explicitly authorized the real DeepSeek test. The key remained in Windows Credential Manager and was never printed or written to the repository.
+- First RED: the guarded script stopped before any request because Windows PowerShell 5.1 had written the fixed budget ledger with a UTF-8 BOM. `live_budget_ledger_accepts_utf8_bom_from_windows_powershell` reproduced the failure, and the ledger reader now accepts BOM-prefixed UTF-8 JSON.
+- Second RED: the first real text request reached DeepSeek but the decoder rejected a normal `response.output_item.added` message item because it required the function-only `name` field. `ignores_non_function_output_items_without_tool_fields` reproduced the provider response shape; the decoder now requires `name` only after identifying a `function_call` item.
+- Tier 4 command: `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-live-deepseek.ps1`, followed by the required interactive `RUN` confirmation.
+- Tier 4 result: PASS. `deepseek_text_stream_and_usage_live` received text deltas, usage, and completion; `deepseek_search_tool_and_usage_live` received a completed `search_library` call and usage. Both used `deepseek-flash` through the official HTTPS Responses endpoint.
+- Budget evidence: the fixed ledger recorded 527 micro-yuan (¥0.000527) for the two successful requests, below both the ¥10 warning and ¥20 hard stop. The earlier protocol-failed request ended before its usage event and is therefore not included in that figure; it is disclosed here rather than represented as zero provider spend. No budget reset was performed.
+- Final automatic regression: `scripts/test-unit.ps1` PASS (workspace fmt/check/clippy/tests, frontend lint/typecheck, React 14/14); `scripts/test-e2e.ps1` PASS (Tauri/WebView2 4/4); `scripts/check-secrets.ps1` PASS (238 files); `pnpm --filter @fishmuse/desktop tauri:build --debug --no-bundle` PASS.
+- Documentation reproducibility: the operator used the documented Settings flow to store the credential and run Tier 4; the recorded Tier 3 run exercised the plugin guide; the no-local-object-sharing checkout reproduced setup plus Tier 1/2 from committed sources.
+
 ## Entry format
 
 ### YYYY-MM-DD — task/checkpoint
@@ -229,12 +240,12 @@ Append commands only when they were actually run. Record failures as failures; d
 
 ## V0.1 gates
 
-- [ ] Tasks 1–15 completed with reviewable local commits
+- [x] Tasks 1–15 completed with reviewable local commits
 - [x] Working tree clean
 - [x] Tier 1/2 pass from a fresh checkout
 - [x] Tier 3 passes with foobar2000 v2.24.3 x64 and the recorded SDK
-- [ ] Tier 4 passes with `deepseek-flash` below the hard budget stop
-- [ ] Twelve acceptance items have commands, evidence, and results
+- [x] Tier 4 passes with `deepseek-flash` below the hard budget stop
+- [x] Twelve acceptance items have commands, evidence, and results
 - [x] No high-priority security or data-integrity issue remains
-- [ ] Chinese setup, plugin, and API documentation is reproducible
+- [x] Chinese setup, plugin, and API documentation is reproducible
 - [x] README and implementation agree on V0.1 exclusions and platform scope

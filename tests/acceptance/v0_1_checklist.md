@@ -12,9 +12,9 @@
 | 6 | foobar 未启动时应用可用 | `cargo test -p fishmuse-playback --test foobar_reconnect`；桌面 E2E 无 foobar 通过 | PASS |
 | 7 | 播放命令 500 ms ACK | 2026-09-29 真实 v2.24.3 x64 smoke，最大采样 ACK 71 ms | PASS（Tier 3） |
 | 8 | 断线重连状态一致 | 两次真实宿主启动 + `foobar_reconnect` session/revision 测试 | PASS（Tier 3） |
-| 9 | DeepSeek 对话流式返回 | `scripts/test-live-deepseek.ps1` / `deepseek_text_stream_and_usage_live` + `deepseek_search_tool_and_usage_live` | 待操作者授权（Tier 4） |
+| 9 | DeepSeek 对话流式返回 | `scripts/test-live-deepseek.ps1` / `deepseek_text_stream_and_usage_live` + `deepseek_search_tool_and_usage_live`；2026-09-30 真实 `deepseek-flash` 运行 | PASS（Tier 4） |
 | 10 | 九个白名单工具和六次上限 | `tool_security::registry_is_an_exact_nine_tool_allowlist`；`agent_loop::refuses_the_seventh_tool_call_and_finishes_safely` | PASS |
-| 11 | ¥10/¥20 测试预算生效 | `cost_policy` + live 脚本固定账本、确认、硬停止与审计重置 | PASS（静态/自动）；live 账本待 Tier 4 |
+| 11 | ¥10/¥20 测试预算生效 | `cost_policy` + live 脚本固定账本、确认、硬停止与审计重置；成功请求账本 ¥0.000527 | PASS（Tier 4） |
 | 12 | Key、路径、音频和完整数据库不离开本机 | credential、redaction、command contract、同 SID pipe、secret scan | PASS |
 
 ## Architecture boundary
@@ -28,4 +28,4 @@
 | presentation 不直接依赖具体 provider/backend | 具体 `DeepSeekClient`/`FoobarBackend` 只在 Tauri composition root 组装 | PASS |
 | FishMuse 是主界面 | Library、Ask FishMuse、Now Playing 与全局 MiniPlayer 桌面 E2E | PASS |
 
-Tier 3 的完整命令、SDK/DLL hash、错误修复与 wrong-SID 证据保存在 `docs/codex/VERIFICATION.md`。Tier 4 只有在真实脚本成功、账本低于硬停止线并把结果补入发布记录后才可标记 PASS。
+Tier 3 的完整命令、SDK/DLL hash、错误修复与 wrong-SID 证据保存在 `docs/codex/VERIFICATION.md`。Tier 4 的真实脚本、协议回归、账本金额与首次失败请求披露也保存在同一验证记录中。

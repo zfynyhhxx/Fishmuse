@@ -80,6 +80,18 @@ fn ignores_unknown_forward_compatible_events() {
 }
 
 #[test]
+fn ignores_non_function_output_items_without_tool_fields() {
+    let mut decoder = DeepSeekEventDecoder::new();
+    let events = decoder
+        .decode_json_line(
+            r#"{"type":"response.output_item.added","sequence_number":1,"output_index":0,"item":{"id":"msg_01","type":"message","role":"assistant","content":[],"status":"in_progress"}}"#,
+        )
+        .expect("message output item is valid without function-only fields");
+
+    assert!(events.is_empty());
+}
+
+#[test]
 fn rejects_duplicate_or_out_of_order_sequences() {
     let error = decode_sse_fixture(fixture("duplicate")).expect_err("duplicate must fail");
     assert!(matches!(error, AIProviderError::Protocol { .. }));

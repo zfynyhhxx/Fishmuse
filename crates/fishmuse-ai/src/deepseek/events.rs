@@ -192,6 +192,7 @@ struct OutputItem {
     id: String,
     #[serde(rename = "type")]
     kind: String,
+    #[serde(default)]
     name: String,
     #[serde(default)]
     arguments: String,

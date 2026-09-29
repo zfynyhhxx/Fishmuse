@@ -28,8 +28,25 @@ fn ledger_path() -> PathBuf {
 }
 
 fn read_ledger(path: &PathBuf) -> Ledger {
-    serde_json::from_slice(&fs::read(path).expect("live budget ledger must exist"))
-        .expect("live budget ledger must be valid JSON")
+    let bytes = fs::read(path).expect("live budget ledger must exist");
+    let json = bytes.strip_prefix(b"\xef\xbb\xbf").unwrap_or(&bytes);
+    serde_json::from_slice(json).expect("live budget ledger must be valid JSON")
+}
+
+#[test]
+fn live_budget_ledger_accepts_utf8_bom_from_windows_powershell() {
+    let path = env::temp_dir().join(format!(
+        "fishmuse-deepseek-ledger-{}-{}.json",
+        std::process::id(),
+        OffsetDateTime::now_utc().unix_timestamp_nanos()
+    ));
+    fs::write(&path, b"\xef\xbb\xbf{\"spent_microunits\":0}")
+        .expect("write PowerShell-style ledger fixture");
+
+    let ledger = read_ledger(&path);
+
+    fs::remove_file(path).expect("remove ledger fixture");
+    assert_eq!(ledger.spent_microunits, 0);
 }
 
 fn assert_live_gate(path: &PathBuf) {

@@ -6,24 +6,23 @@ Last updated: 2026-09-30
 
 - Branch: `feature/fishmuse-v0.1-muse-loop`
 - Head before Task 15: `2908ac9 feat(ui): add streaming AI chat and now playing`
-- Completed implementation tasks: Tasks 1–14, including Task 11.5
-- Current task: Task 15 automation, CI, live gates, documentation, and automatic acceptance implemented
-- Remaining release gate: Tier 4 real DeepSeek acceptance
+- Completed implementation tasks: Tasks 1–15, including Task 11.5
+- Current task: V0.1 completion checkpoint and local submission
+- Remaining release gate: none
 
 ## Next autonomous action
 
-After the operator saves a DeepSeek key through Settings, explicitly run `scripts/test-live-deepseek.ps1`, record its ledger/result, refresh the release conclusion, and confirm the committed tree is clean. Do not substitute fixture output for Tier 4.
+Keep the V0.1 branch stable. Future V0.1.1/V0.2 work starts from a separate specification and plan rather than extending this completion task.
 
 ## Current blocker
 
-- External: read-only `cmdkey /list` check on 2026-09-30 found no `FishMuse/DeepSeek` credential, so Tier 4 cannot run. No live budget ledger exists and no paid request was made.
-- Tier 3 remains PASS from the recorded v2.24.3 x64/SDK 2026-09-17 run, including the real wrong-SID DACL check.
+- None. Tier 3 remains PASS from the recorded v2.24.3 x64/SDK 2026-09-17 run, including the real wrong-SID DACL check.
+- Tier 4 PASS: both guarded `deepseek-flash` live tests succeeded; the fixed ledger recorded ¥0.000527 for the successful requests, below the ¥20 hard stop.
 
 ## Required external gates
 
-- Task 10/15: save a DeepSeek API key through the implemented Windows Credential Manager flow.
-- Task 15: the operator must explicitly run and confirm the guarded DeepSeek script; it sends two real requests and spends credit.
+- None for V0.1. Future live runs remain explicitly operator-authorized and protected by the same fixed budget ledger.
 
 ## Completion state
 
-V0.1 code and automatic acceptance are complete, but the release definition is not yet complete because Tier 4 has no credential or real result. Tier 1/2 pass from a no-local-object-sharing fresh clone at `c5fa4af`, the 100k P95 is 168.540 ms, Tier 3 is recorded PASS, the production debug binary builds, and the committed worktree is clean. No real DeepSeek request or paid spend was used.
+V0.1 meets the completion definition. Tier 1/2 pass from a no-local-object-sharing fresh clone at `c5fa4af` and were rerun from the final working state; the 100k P95 is 168.540 ms; Tier 3 and Tier 4 are recorded PASS; the production debug binary builds; all twelve acceptance items have evidence. The final local commit and clean-tree check complete the submission checkpoint.
