@@ -98,9 +98,7 @@ impl<R: ConversationRepository> AgentStore for ConversationAgentStore<R> {
     }
 
     async fn save_turn(&self, record: AgentTurnRecord) -> AppResult<()> {
-        self.repository
-            .create(record.conversation_id, None)
-            .await?;
+        self.repository.create(record.conversation_id, None).await?;
         self.repository
             .append_message(record.conversation_id, "user", &record.user_text)
             .await?;

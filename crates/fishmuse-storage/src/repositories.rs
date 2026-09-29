@@ -615,13 +615,13 @@ impl ConversationRepository for SqliteConversationRepository {
              VALUES (?, ?, ?, ?) \
              ON CONFLICT(conversation_id) DO NOTHING",
         )
-            .bind(id.as_uuid().to_string())
-            .bind(self.user_id.as_uuid().to_string())
-            .bind(title)
-            .bind(OffsetDateTime::now_utc().unix_timestamp())
-            .execute(&self.pool)
-            .await
-            .map_err(db_error)?;
+        .bind(id.as_uuid().to_string())
+        .bind(self.user_id.as_uuid().to_string())
+        .bind(title)
+        .bind(OffsetDateTime::now_utc().unix_timestamp())
+        .execute(&self.pool)
+        .await
+        .map_err(db_error)?;
         Ok(())
     }
 

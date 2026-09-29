@@ -589,8 +589,7 @@ async fn process_file<R: TagReader>(
     if let Some(asset) = same_path.filter(|asset| {
         asset.stored.projected
             && asset.full.as_deref() == Some(identity.content_fingerprint.as_str())
-    })
-    {
+    }) {
         let write = (asset.stored.availability != "available"
             || asset.quick.as_deref() != Some(identity.quick_fingerprint.as_str()))
         .then(|| asset_write(asset.stored.media_asset_id, &path, &identity));
