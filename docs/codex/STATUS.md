@@ -5,16 +5,14 @@ Last updated: 2026-09-29
 ## Repository checkpoint
 
 - Branch: `feature/fishmuse-v0.1-muse-loop`
-- Head before Task 7: `877d1ba chore(codex): add autonomous v0.1 workflow`
-- Working tree before Task 7: clean
-- Autonomous Codex configuration: prepared and structurally verified on 2026-09-28
-- Completed implementation tasks: Task 1–13, including Task 11.5
-- Current task: revised Task 14, ready for failing streaming chat and revisioned playback UI tests
-- Remaining implementation tasks: revised Task 14–15
+- Head before revised Task 14: `4dedc0e feat(ui): add onboarding settings and local library`
+- Completed implementation tasks: Tasks 1–14, including Task 11.5
+- Current task: revised Task 14 complete; Task 15 acceptance and delivery remain
+- Remaining implementation task: revised Task 15
 
 ## Next autonomous action
 
-Start revised Task 14 Step 1 with failing streamed-chat tests, then add Now Playing and shared revisioned playback state. Route AI events by active turn, ignore stale sequences/revisions, keep turns alive across page navigation, and preserve provider/backend-neutral presentation contracts. Do not use a real DeepSeek key or spend without the explicit live-gate authorization required by the plan.
+Start revised Task 15 Step 1 with failing deterministic desktop E2E paths for onboarding, Library, fake AI chat, and fake playback. Preserve the live-gate requirements: do not use a real DeepSeek key, spend, installation, or profile without explicit authorization.
 
 ## Current blocker
 
@@ -30,4 +28,4 @@ Start revised Task 14 Step 1 with failing streamed-chat tests, then add Now Play
 
 ## Completion state
 
-V0.1 is not complete. Revised Task 13 provides first-run onboarding, Settings, a paginated and virtualized local Library, safe scan diagnostics, generic service state, and a global MiniPlayer. Settings reads cumulative estimated spend from the local usage ledger and exposes the ¥10 warning / ¥20 live-test stop thresholds without exposing credentials. Library pagination uses bounded offsets while the AI tool remains capped at twenty results. Revised Tasks 14–15 remain unfinished. No real DeepSeek request or paid spend was used.
+V0.1 is not complete. Revised Tasks 13 and 14 now provide onboarding, Settings, paginated/virtualized Library, safe scan diagnostics, streaming Ask FishMuse, readable redacted tool activity, actionable provider failures, a shared revisioned playback store, Now Playing controls, and the global MiniPlayer. Task 15 acceptance, CI, live gates, and delivery documentation remain unfinished. No real DeepSeek request or paid spend was used.

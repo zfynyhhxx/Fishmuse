@@ -177,6 +177,8 @@ pub struct AIServiceState {
 #[serde(rename_all = "snake_case")]
 pub enum AIApplicationFailureReason {
     Provider,
+    ProviderUnauthorized,
+    ProviderRateLimited,
     Tool,
     ToolLimit,
     Cancelled,
@@ -310,6 +312,12 @@ fn map_agent_event(event: AgentEvent) -> AIApplicationEvent {
         AgentEvent::TurnFailed { reason } => AIApplicationEvent::TurnFailed {
             reason: match reason {
                 TurnFailureReason::Provider => AIApplicationFailureReason::Provider,
+                TurnFailureReason::ProviderUnauthorized => {
+                    AIApplicationFailureReason::ProviderUnauthorized
+                }
+                TurnFailureReason::ProviderRateLimited => {
+                    AIApplicationFailureReason::ProviderRateLimited
+                }
                 TurnFailureReason::Tool => AIApplicationFailureReason::Tool,
                 TurnFailureReason::ToolLimit => AIApplicationFailureReason::ToolLimit,
                 TurnFailureReason::Cancelled => AIApplicationFailureReason::Cancelled,

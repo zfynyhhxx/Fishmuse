@@ -230,6 +230,29 @@ async fn provider_interruption_persists_partial_failed_state() {
 }
 
 #[tokio::test]
+async fn provider_auth_and_rate_limit_failures_remain_actionable() {
+    for (error, expected) in [
+        (
+            AIProviderError::Unauthorized,
+            TurnFailureReason::ProviderUnauthorized,
+        ),
+        (
+            AIProviderError::RateLimited { retry_after: None },
+            TurnFailureReason::ProviderRateLimited,
+        ),
+    ] {
+        let executor = Arc::new(FakeToolExecutor::default());
+        let (runner, _) = runner(vec![vec![Err(error)]], executor);
+        let events = collect(&runner, request(CancellationToken::new())).await;
+
+        assert!(matches!(
+            events.last(),
+            Some(AgentEvent::TurnFailed { reason }) if *reason == expected
+        ));
+    }
+}
+
+#[tokio::test]
 async fn cancellation_prevents_tools_that_have_not_started() {
     let cancellation = CancellationToken::new();
     let executor = Arc::new(FakeToolExecutor::default());

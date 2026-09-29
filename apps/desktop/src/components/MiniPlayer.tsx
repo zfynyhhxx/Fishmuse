@@ -1,9 +1,9 @@
-import { useAppStore } from "../state/appStore";
+import { usePlaybackState } from "../features/now-playing/usePlaybackState";
 
 const seconds = (milliseconds: number) => Math.max(0, Math.floor(milliseconds / 1000));
 
 export function MiniPlayer() {
-  const { playback } = useAppStore();
+  const playback = usePlaybackState();
   const unavailable = playback.status === "unavailable";
   return (
     <aside className="mini-player" aria-label="Mini player">

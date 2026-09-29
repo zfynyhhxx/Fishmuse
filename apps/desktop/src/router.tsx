@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 
 import { LibraryPage } from "./features/library/LibraryPage";
+import { ChatPage } from "./features/chat/ChatPage";
+import { NowPlayingPage } from "./features/now-playing/NowPlayingPage";
 import { OnboardingPage } from "./features/onboarding/OnboardingPage";
 import { SettingsPage } from "./features/settings/SettingsPage";
 
@@ -23,7 +25,7 @@ export function Router() {
 
   if (route === "onboarding") return <OnboardingPage />;
   if (route === "settings") return <SettingsPage />;
-  if (route === "chat") return <section className="empty-state"><h1>Ask FishMuse</h1><p>Streaming conversation arrives in the next interface step.</p></section>;
-  if (route === "now-playing") return <section className="empty-state"><h1>Now Playing</h1><p>Choose a playable track from your Library.</p></section>;
+  if (route === "chat") return <ChatPage />;
+  if (route === "now-playing") return <NowPlayingPage />;
   return <LibraryPage />;
 }

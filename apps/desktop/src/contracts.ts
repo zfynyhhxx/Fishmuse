@@ -103,7 +103,15 @@ type AIEventBody =
   | { event_type: "turn_completed" }
   | {
       event_type: "turn_failed";
-      payload: { reason: "provider" | "tool" | "tool_limit" | "cancelled" };
+      payload: {
+        reason:
+          | "provider"
+          | "provider_unauthorized"
+          | "provider_rate_limited"
+          | "tool"
+          | "tool_limit"
+          | "cancelled";
+      };
     };
 
 export type AIEventEnvelope = {

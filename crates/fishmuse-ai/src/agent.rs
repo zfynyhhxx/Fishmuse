@@ -40,6 +40,8 @@ pub struct AgentTurnRequest {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TurnFailureReason {
     Provider,
+    ProviderUnauthorized,
+    ProviderRateLimited,
     Tool,
     ToolLimit,
     Cancelled,
@@ -137,11 +139,21 @@ impl<P: AIProvider + 'static> AgentRunner<P> {
                 while let Some(item) = provider_stream.next().await {
                     let event = match item {
                         Ok(event) => event,
-                        Err(_) => {
+                        Err(error) => {
+                            let reason = match error {
+                                crate::AIProviderError::Unauthorized
+                                | crate::AIProviderError::InvalidConfiguration => {
+                                    TurnFailureReason::ProviderUnauthorized
+                                }
+                                crate::AIProviderError::RateLimited { .. } => {
+                                    TurnFailureReason::ProviderRateLimited
+                                }
+                                _ => TurnFailureReason::Provider,
+                            };
                             if let Err(error) = save(&store, &request, &assistant_text, &tool_results, AgentTurnStatus::Failed, accumulated_usage.clone()).await {
                                 yield Err(error);
                             } else {
-                                yield Ok(AgentEvent::TurnFailed { reason: TurnFailureReason::Provider });
+                                yield Ok(AgentEvent::TurnFailed { reason });
                             }
                             return;
                         }

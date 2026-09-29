@@ -1,10 +1,11 @@
 use std::sync::Arc;
 
 use fishmuse_ai::{
-    AIApplicationEvent, AIEvent, AIService, AIServiceState, AIServiceStatus, AIServiceTurnRequest,
-    AgentAIService, AgentLimits, AgentRunner, ContextEnvelope, CurrentViewContext, FakeAIProvider,
-    FakeToolExecutor, MemoryAgentStore, NowPlayingContext, NowPlayingStatus, ResponseId,
-    ServiceImplementation, ToolRegistry,
+    AIApplicationEvent, AIApplicationFailureReason, AIEvent, AIProviderError, AIService,
+    AIServiceState, AIServiceStatus, AIServiceTurnRequest, AgentAIService, AgentLimits,
+    AgentRunner, ContextEnvelope, CurrentViewContext, FakeAIProvider, FakeToolExecutor,
+    MemoryAgentStore, NowPlayingContext, NowPlayingStatus, ResponseId, ServiceImplementation,
+    ToolRegistry,
 };
 use fishmuse_domain::{ConversationId, TrackId, UserId};
 use futures_util::StreamExt;
@@ -27,6 +28,34 @@ fn service(provider: FakeAIProvider) -> (AgentAIService<FakeAIProvider>, FakeAIP
         }),
     };
     (AgentAIService::new(runner, state), observed_provider)
+}
+
+#[tokio::test]
+async fn application_events_preserve_provider_recovery_actions() {
+    for (error, expected) in [
+        (
+            AIProviderError::Unauthorized,
+            AIApplicationFailureReason::ProviderUnauthorized,
+        ),
+        (
+            AIProviderError::RateLimited { retry_after: None },
+            AIApplicationFailureReason::ProviderRateLimited,
+        ),
+    ] {
+        let provider = FakeAIProvider::scripted(vec![vec![Err(error)]]);
+        let (service, _) = service(provider);
+        let events: Vec<_> = service
+            .start_turn(request(None))
+            .events
+            .map(|event| event.expect("application event"))
+            .collect()
+            .await;
+
+        assert!(matches!(
+            events.last().map(|event| &event.event),
+            Some(AIApplicationEvent::TurnFailed { reason }) if *reason == expected
+        ));
+    }
 }
 
 fn request(context: Option<ContextEnvelope>) -> AIServiceTurnRequest {
