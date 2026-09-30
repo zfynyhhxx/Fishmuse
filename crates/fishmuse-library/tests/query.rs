@@ -19,6 +19,7 @@ async fn query_port_delegates_search_item_and_recent_listens_without_crossing_us
             normalized_path: b"song.flac".to_vec(),
             original_path: b"Song.flac".to_vec(),
             content_fingerprint: "fingerprint".to_owned(),
+            fallback_title: "Song".to_owned(),
             tags: ParsedTags {
                 title: Some("Ocean Song".to_owned()),
                 artists: vec!["Artist".to_owned()],

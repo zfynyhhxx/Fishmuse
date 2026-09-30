@@ -14,6 +14,7 @@ pub struct LocalImport {
     pub normalized_path: Vec<u8>,
     pub original_path: Vec<u8>,
     pub content_fingerprint: String,
+    pub fallback_title: String,
     pub tags: ParsedTags,
 }
 
@@ -41,14 +42,27 @@ impl LocalLibraryImporter {
     }
 
     pub async fn import(&self, input: LocalImport) -> AppResult<ImportOutcome> {
-        let canonical = canonicalize_tags(input.tags.clone());
+        let fallback_title = input.fallback_title.trim();
+        if fallback_title.is_empty() {
+            return Err(import_error("fallback title must not be empty"));
+        }
+        let raw_tags_json = serde_json::to_string(&input.tags).map_err(import_error)?;
+        let title = input
+            .tags
+            .title
+            .clone()
+            .unwrap_or_else(|| fallback_title.to_owned());
+        let mut projected_tags = input.tags.clone();
+        if projected_tags.title.is_none() {
+            projected_tags.title = Some(title.clone());
+        }
+        let canonical = canonicalize_tags(projected_tags);
         let normalized_title = canonical.search_title.clone().unwrap_or_default();
         let normalized_artists =
             serde_json::to_string(&NormalizedArtists(canonical.search_artists.clone()))
                 .map_err(import_error)?;
         let normalized_artist_key = canonical.search_artists.join("\u{1f}");
         let normalized_release = canonical.search_release.clone();
-        let raw_tags_json = serde_json::to_string(&input.tags).map_err(import_error)?;
         let user = self.user_id.as_uuid().to_string();
         let mut transaction = self.pool.begin().await.map_err(import_error)?;
 
@@ -86,6 +100,17 @@ impl LocalLibraryImporter {
             if confirmed_same_asset
                 && let (Some(track_id), Some(recording_id)) = (track_id, recording_id)
             {
+                repair_tagless_placeholder(
+                    &mut transaction,
+                    &user,
+                    asset_id,
+                    track_id,
+                    recording_id,
+                    &input,
+                    &title,
+                    &normalized_title,
+                )
+                .await?;
                 update_asset_and_metadata(
                     &mut transaction,
                     &user,
@@ -129,6 +154,17 @@ impl LocalLibraryImporter {
             let track_id = parse_track_id(row.try_get("track_id").map_err(import_error)?)?;
             let recording_id =
                 parse_recording_id(row.try_get("recording_id").map_err(import_error)?)?;
+            repair_tagless_placeholder(
+                &mut transaction,
+                &user,
+                asset_id,
+                track_id,
+                recording_id,
+                &input,
+                &title,
+                &normalized_title,
+            )
+            .await?;
             update_asset_and_metadata(
                 &mut transaction,
                 &user,
@@ -154,11 +190,6 @@ impl LocalLibraryImporter {
         let recording_id = RecordingId::new();
         let track_id = TrackId::new();
         let release_id = input.tags.album.as_ref().map(|_| ReleaseId::new());
-        let title = input
-            .tags
-            .title
-            .clone()
-            .unwrap_or_else(|| "Unknown title".to_owned());
         let duration_ms = input
             .tags
             .duration_ms
@@ -300,6 +331,55 @@ impl LocalLibraryImporter {
             possible_match,
         })
     }
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn repair_tagless_placeholder(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    user: &str,
+    asset_id: MediaAssetId,
+    track_id: TrackId,
+    recording_id: RecordingId,
+    input: &LocalImport,
+    title: &str,
+    normalized_title: &str,
+) -> AppResult<()> {
+    if input.tags.title.is_some() {
+        return Ok(());
+    }
+    let prior_raw_tags: Option<String> = sqlx::query_scalar(
+        "SELECT raw_tags_json FROM local_import_metadata WHERE user_id = ? AND media_asset_id = ?",
+    )
+    .bind(user)
+    .bind(asset_id.as_uuid().to_string())
+    .fetch_optional(&mut **transaction)
+    .await
+    .map_err(import_error)?;
+    let prior_was_tagless = prior_raw_tags
+        .as_deref()
+        .and_then(|raw| serde_json::from_str::<ParsedTags>(raw).ok())
+        .is_some_and(|tags| tags.title.is_none());
+    if !prior_was_tagless {
+        return Ok(());
+    }
+
+    sqlx::query("UPDATE tracks SET title = ?, normalized_title = ? WHERE user_id = ? AND track_id = ? AND title = 'Unknown title'")
+        .bind(title)
+        .bind(normalized_title)
+        .bind(user)
+        .bind(track_id.as_uuid().to_string())
+        .execute(&mut **transaction)
+        .await
+        .map_err(import_error)?;
+    sqlx::query("UPDATE recordings SET title = ?, normalized_title = ? WHERE user_id = ? AND recording_id = ? AND title = 'Unknown title'")
+        .bind(title)
+        .bind(normalized_title)
+        .bind(user)
+        .bind(recording_id.as_uuid().to_string())
+        .execute(&mut **transaction)
+        .await
+        .map_err(import_error)?;
+    Ok(())
 }
 
 #[allow(clippy::too_many_arguments)]

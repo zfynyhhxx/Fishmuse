@@ -44,6 +44,7 @@ export function useLibrarySearch(refreshToken: string | null = null) {
     if (!hasMore || loadingOffset.current === offset) return;
     loadingOffset.current = offset;
     setLoadingMore(true);
+    setError(null);
     try {
       const results = await searchLibrary({
         text: query,

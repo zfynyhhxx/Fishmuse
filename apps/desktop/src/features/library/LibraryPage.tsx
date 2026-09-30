@@ -1,7 +1,12 @@
 import { useState } from "react";
 
 import type { TrackSummary } from "../../contracts";
-import { chooseLibraryFolders, runPlaybackAction, startLibraryScan } from "../../lib/ipc";
+import {
+  cancelLibraryScan,
+  chooseLibraryFolders,
+  runPlaybackAction,
+  startLibraryScan,
+} from "../../lib/ipc";
 import { useAppStore } from "../../state/appStore";
 import { playbackStore } from "../../state/playbackStore";
 import { TrackTable } from "./TrackTable";
@@ -14,10 +19,40 @@ export function LibraryPage() {
     : null;
   const { query, setQuery, tracks, loading, loadingMore, hasMore, loadMore, error } = useLibrarySearch(completedScan);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [pendingScanId, setPendingScanId] = useState<string | null>(null);
+  const runningScanId = scanProgress?.status === "running" ? scanProgress.scan_id : null;
+  const pendingScanFinished = pendingScanId != null
+    && scanProgress?.scan_id === pendingScanId
+    && scanProgress.status !== "running";
+  const activeScanId = runningScanId ?? (pendingScanFinished ? null : pendingScanId);
+  const scanBusy = activeScanId != null;
 
   const scan = async () => {
-    const roots = await chooseLibraryFolders();
-    if (roots.length > 0) await startLibraryScan(roots);
+    if (scanBusy) return;
+    setActionError(null);
+    let roots: string[];
+    try {
+      roots = await chooseLibraryFolders();
+    } catch {
+      setActionError("The folder chooser could not be opened. Please try again.");
+      return;
+    }
+    if (roots.length === 0) return;
+    try {
+      const started = await startLibraryScan(roots);
+      setPendingScanId(started.scan_id);
+    } catch {
+      setActionError("The library scan could not be started. Please try again.");
+    }
+  };
+  const cancelScan = async () => {
+    if (!activeScanId) return;
+    setActionError(null);
+    try {
+      await cancelLibraryScan(activeScanId);
+    } catch {
+      setActionError("The library scan could not be cancelled. It may have already finished.");
+    }
   };
   const play = async (track: TrackSummary) => {
     setActionError(null);
@@ -45,12 +80,23 @@ export function LibraryPage() {
       <div className="library-chrome">
         <div className="page-heading">
           <div><p className="eyebrow">On this computer</p><h1 id="library-title">Library</h1></div>
-          <button type="button" onClick={() => void scan()}>Scan folders</button>
+          <div className="button-row">
+            <button type="button" disabled={scanBusy} onClick={() => void scan()}>Scan folders</button>
+            {activeScanId ? (
+              <button type="button" className="secondary" onClick={() => void cancelScan()}>Cancel scan</button>
+            ) : null}
+          </div>
         </div>
         {scanProgress ? (
           <section className="scan-card" aria-label="Library scan progress">
-            <strong>{scanProgress.status === "running" ? "Scanning in the background" : "Scan finished"}</strong>
+            <strong>{({
+              running: "Scanning in the background",
+              completed: "Scan complete",
+              cancelled: "Scan cancelled",
+              failed: "Scan failed",
+            } as const)[scanProgress.status]}</strong>
             <span>{scanProgress.parsed} parsed · {scanProgress.unchanged} unchanged</span>
+            {scanProgress.error && scanProgress.failed === 0 ? <p>{scanProgress.error.user_message}</p> : null}
             {scanProgress.failed > 0 ? (
               <details>
                 <summary>{scanProgress.failed} files need attention</summary>

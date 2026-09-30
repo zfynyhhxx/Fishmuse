@@ -8,6 +8,12 @@ fn import(asset: MediaAssetId, path: &str, fingerprint: &str, title: &str) -> Lo
         normalized_path: path.as_bytes().to_vec(),
         original_path: path.as_bytes().to_vec(),
         content_fingerprint: fingerprint.to_owned(),
+        fallback_title: path
+            .rsplit('/')
+            .next()
+            .unwrap_or(path)
+            .rsplit_once('.')
+            .map_or_else(|| path.to_owned(), |(stem, _)| stem.to_owned()),
         tags: ParsedTags {
             title: Some(title.to_owned()),
             artists: vec!["Artist A".to_owned()],
@@ -19,11 +25,129 @@ fn import(asset: MediaAssetId, path: &str, fingerprint: &str, title: &str) -> Lo
     }
 }
 
+fn tagless(
+    asset: MediaAssetId,
+    path: &str,
+    fingerprint: &str,
+    fallback_title: &str,
+) -> LocalImport {
+    let mut input = import(asset, path, fingerprint, "ignored");
+    input.tags.title = None;
+    input.fallback_title = fallback_title.to_owned();
+    input
+}
+
 async fn setup() -> (Database, UserId, LocalLibraryImporter) {
     let database = Database::open_in_memory().await.expect("database");
     let user = database.ensure_local_user().await.expect("local user");
     let importer = LocalLibraryImporter::new(database.pool().clone(), user);
     (database, user, importer)
+}
+
+async fn projected_titles(
+    database: &Database,
+    track_id: fishmuse_domain::TrackId,
+) -> (String, String) {
+    sqlx::query_as("SELECT tracks.title, recordings.title FROM tracks JOIN recordings ON recordings.user_id = tracks.user_id AND recordings.recording_id = tracks.recording_id WHERE tracks.track_id = ?")
+        .bind(track_id.as_uuid().to_string())
+        .fetch_one(database.pool())
+        .await
+        .expect("projected titles")
+}
+
+#[tokio::test]
+async fn tagless_import_uses_fallback_and_repairs_only_confirmed_legacy_placeholders() {
+    let (database, _user, importer) = setup().await;
+
+    let fresh_asset = MediaAssetId::new();
+    let fresh = importer
+        .import(tagless(
+            fresh_asset,
+            "music/Quiet River.flac",
+            "fresh-fingerprint",
+            "Quiet River",
+        ))
+        .await
+        .expect("fresh tagless import");
+    assert_eq!(
+        projected_titles(&database, fresh.track_id).await,
+        ("Quiet River".to_owned(), "Quiet River".to_owned())
+    );
+
+    let legacy_asset = MediaAssetId::new();
+    let legacy = importer
+        .import(tagless(
+            legacy_asset,
+            "music/Recovered Name.flac",
+            "legacy-fingerprint",
+            "Unknown title",
+        ))
+        .await
+        .expect("legacy placeholder");
+    let repaired = importer
+        .import(tagless(
+            legacy_asset,
+            "music/Recovered Name.flac",
+            "legacy-fingerprint",
+            "Recovered Name",
+        ))
+        .await
+        .expect("repair placeholder");
+    assert_eq!(repaired.track_id, legacy.track_id);
+    assert_eq!(repaired.recording_id, legacy.recording_id);
+    assert_eq!(
+        projected_titles(&database, repaired.track_id).await,
+        ("Recovered Name".to_owned(), "Recovered Name".to_owned())
+    );
+
+    let literal_asset = MediaAssetId::new();
+    let literal = importer
+        .import(import(
+            literal_asset,
+            "music/Literal.flac",
+            "literal-fingerprint",
+            "Unknown title",
+        ))
+        .await
+        .expect("literal title");
+    let mut literal_rescan = import(
+        literal_asset,
+        "music/Literal.flac",
+        "literal-fingerprint",
+        "Unknown title",
+    );
+    literal_rescan.fallback_title = "Literal".to_owned();
+    importer
+        .import(literal_rescan)
+        .await
+        .expect("literal rescan");
+    assert_eq!(
+        projected_titles(&database, literal.track_id).await,
+        ("Unknown title".to_owned(), "Unknown title".to_owned())
+    );
+
+    let named_asset = MediaAssetId::new();
+    let named = importer
+        .import(import(
+            named_asset,
+            "music/Original.flac",
+            "named-fingerprint",
+            "Original title",
+        ))
+        .await
+        .expect("named title");
+    let mut named_rescan = import(
+        named_asset,
+        "music/Original.flac",
+        "named-fingerprint",
+        "Original title",
+    );
+    named_rescan.fallback_title = "Replacement attempt".to_owned();
+    importer.import(named_rescan).await.expect("named rescan");
+    assert_eq!(
+        projected_titles(&database, named.track_id).await,
+        ("Original title".to_owned(), "Original title".to_owned())
+    );
 }
 
 #[tokio::test]

@@ -18,7 +18,7 @@ use fishmuse_storage::{
 };
 use futures::{StreamExt, stream};
 use serde::{Deserialize, Serialize};
-use sqlx::SqlitePool;
+use sqlx::{Row, SqlitePool};
 use tokio::sync::{
     Notify, Semaphore,
     mpsc::{self, Sender, UnboundedReceiver, error::TrySendError},
@@ -234,10 +234,13 @@ impl<R: TagReader> LibraryScanner<R> {
             .iter()
             .map(|path| normalize_path_bytes(path))
             .collect();
+        let title_repair_candidates =
+            load_title_repair_candidates(&self.pool, request.user_id).await?;
         let existing = ExistingAssets::new(
             repository.list_assets().await?,
             &discovered_normalized_paths,
             &normalized_roots,
+            &title_repair_candidates,
         );
         let semaphore = Arc::new(Semaphore::new(self.concurrency_limit));
         // Hashing overlaps, but identity-dependent decisions follow the sorted candidate paths.
@@ -443,6 +446,7 @@ struct ExistingAsset {
     stored: StoredMediaAsset,
     quick: Option<String>,
     full: Option<String>,
+    repair_title: bool,
 }
 
 #[derive(Clone, Default)]
@@ -457,6 +461,7 @@ impl ExistingAssets {
         mut assets: Vec<StoredMediaAsset>,
         discovered_paths: &HashSet<Vec<u8>>,
         normalized_roots: &[Vec<u8>],
+        title_repair_candidates: &HashSet<MediaAssetId>,
     ) -> Self {
         // A hash group maps lexically sorted disappeared paths to sorted replacement paths.
         assets.sort_by(|left, right| left.normalized_path.cmp(&right.normalized_path));
@@ -468,6 +473,7 @@ impl ExistingAssets {
                 stored: stored.clone(),
                 quick: parsed.map(|(quick, _)| quick.to_owned()),
                 full: parsed.map(|(_, full)| full.to_owned()),
+                repair_title: title_repair_candidates.contains(&stored.media_asset_id),
             };
             let is_disappeared_in_scanned_root = normalized_roots
                 .iter()
@@ -588,6 +594,7 @@ async fn process_file<R: TagReader>(
     };
     if let Some(asset) = same_path.filter(|asset| {
         asset.stored.projected
+            && !asset.repair_title
             && asset.full.as_deref() == Some(identity.content_fingerprint.as_str())
     }) {
         let write = (asset.stored.availability != "available"
@@ -602,7 +609,10 @@ async fn process_file<R: TagReader>(
         .is_none()
         .then(|| existing.take_move_candidate(&identity.content_fingerprint))
         .flatten();
-    if let Some(moved) = moved.as_ref().filter(|asset| asset.stored.projected) {
+    if let Some(moved) = moved
+        .as_ref()
+        .filter(|asset| asset.stored.projected && !asset.repair_title)
+    {
         return ProcessedFile::Unchanged {
             media_asset_id: moved.stored.media_asset_id,
             write: Some(asset_write(moved.stored.media_asset_id, &path, &identity)),
@@ -641,9 +651,51 @@ fn parsed_file(
             normalized_path: asset.normalized_path,
             original_path: asset.original_path,
             content_fingerprint: asset.identity,
+            fallback_title: fallback_title(path),
             tags,
         },
     }
+}
+
+fn fallback_title(path: &Path) -> String {
+    path.file_stem()
+        .map(|stem| stem.to_string_lossy().trim().to_owned())
+        .filter(|stem| !stem.is_empty())
+        .unwrap_or_else(|| "Unknown title".to_owned())
+}
+
+async fn load_title_repair_candidates(
+    pool: &SqlitePool,
+    user_id: UserId,
+) -> AppResult<HashSet<MediaAssetId>> {
+    let rows = sqlx::query(
+        "SELECT media_assets.media_asset_id, local_import_metadata.raw_tags_json FROM media_assets JOIN tracks ON tracks.user_id = media_assets.user_id AND tracks.track_id = media_assets.track_id JOIN recordings ON recordings.user_id = tracks.user_id AND recordings.recording_id = tracks.recording_id JOIN local_import_metadata ON local_import_metadata.user_id = media_assets.user_id AND local_import_metadata.media_asset_id = media_assets.media_asset_id WHERE media_assets.user_id = ? AND (tracks.title = 'Unknown title' OR recordings.title = 'Unknown title')",
+    )
+    .bind(user_id.as_uuid().to_string())
+    .fetch_all(pool)
+    .await
+    .map_err(title_repair_error)?;
+    let mut candidates = HashSet::new();
+    for row in rows {
+        let raw_tags_json: String = row.try_get("raw_tags_json").map_err(title_repair_error)?;
+        let tags: ParsedTags = serde_json::from_str(&raw_tags_json).map_err(title_repair_error)?;
+        if tags.title.is_some() {
+            continue;
+        }
+        let asset_id: String = row.try_get("media_asset_id").map_err(title_repair_error)?;
+        let asset_id = serde_json::from_value::<MediaAssetId>(serde_json::Value::String(asset_id))
+            .map_err(title_repair_error)?;
+        candidates.insert(asset_id);
+    }
+    Ok(candidates)
+}
+
+fn title_repair_error(error: impl std::fmt::Display) -> AppError {
+    library_error(
+        "The library could not check legacy titles.",
+        "Try the scan again.",
+        error,
+    )
 }
 
 fn asset_write(id: MediaAssetId, path: &Path, identity: &FileIdentity) -> MediaAssetWrite {

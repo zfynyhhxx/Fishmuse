@@ -26,6 +26,7 @@ use tokio_util::sync::CancellationToken;
 struct FakeTagReader {
     calls: Arc<Mutex<Vec<PathBuf>>>,
     failures: Arc<HashSet<String>>,
+    tagless: bool,
     block_on: Arc<Option<String>>,
     block_started: watch::Sender<bool>,
 }
@@ -36,6 +37,7 @@ impl FakeTagReader {
         Self {
             calls: Arc::new(Mutex::new(Vec::new())),
             failures: Arc::new(HashSet::new()),
+            tagless: false,
             block_on: Arc::new(None),
             block_started,
         }
@@ -50,6 +52,12 @@ impl FakeTagReader {
     fn blocking(file_name: &str) -> Self {
         let mut reader = Self::successful();
         reader.block_on = Arc::new(Some(file_name.to_owned()));
+        reader
+    }
+
+    fn tagless() -> Self {
+        let mut reader = Self::successful();
+        reader.tagless = true;
         reader
     }
 
@@ -105,7 +113,7 @@ impl TagReader for FakeTagReader {
             ));
         }
         Ok(ParsedTags {
-            title: Some(file_name),
+            title: (!self.tagless).then_some(file_name),
             artists: vec!["Fixture Artist".to_owned()],
             album: Some("Fixture Album".to_owned()),
             duration_ms: Some(1_000),
@@ -113,6 +121,115 @@ impl TagReader for FakeTagReader {
             track_number: Some(1),
         })
     }
+}
+
+#[tokio::test]
+async fn tagless_file_uses_its_filename_stem_as_the_display_title() {
+    let (database, user_id) = setup().await;
+    let directory = tempdir().expect("temporary directory");
+    fixture(
+        &directory.path().join("Quiet River.flac"),
+        b"generated tagless fixture",
+    );
+    let reader = FakeTagReader::tagless();
+    let scanner = LibraryScanner::new(database.pool().clone(), reader.clone());
+    let (progress, _receiver) = progress_channel();
+
+    scanner
+        .scan(
+            ScanRequest {
+                user_id,
+                roots: vec![directory.path().to_path_buf()],
+            },
+            CancellationToken::new(),
+            progress,
+        )
+        .await
+        .expect("tagless scan");
+
+    let repository = SqliteLibraryRepository::new(database.pool().clone(), user_id);
+    let tracks = repository
+        .search(
+            user_id,
+            SearchQuery {
+                text: "Quiet River".to_owned(),
+                artist: None,
+                release: None,
+                limit: 20,
+                offset: 0,
+            },
+        )
+        .await
+        .expect("search filename fallback");
+    assert_eq!(tracks.len(), 1);
+    assert_eq!(tracks[0].title, "Quiet River");
+    let track_id = tracks[0].id;
+
+    sqlx::query("UPDATE tracks SET title = 'Unknown title', normalized_title = '' WHERE user_id = ? AND track_id = ?")
+        .bind(user_id.as_uuid().to_string())
+        .bind(track_id.as_uuid().to_string())
+        .execute(database.pool())
+        .await
+        .expect("legacy track placeholder");
+    sqlx::query("UPDATE recordings SET title = 'Unknown title', normalized_title = '' WHERE user_id = ? AND recording_id = (SELECT recording_id FROM tracks WHERE user_id = ? AND track_id = ?)")
+        .bind(user_id.as_uuid().to_string())
+        .bind(user_id.as_uuid().to_string())
+        .bind(track_id.as_uuid().to_string())
+        .execute(database.pool())
+        .await
+        .expect("legacy recording placeholder");
+
+    let (progress, _receiver) = progress_channel();
+    scanner
+        .scan(
+            ScanRequest {
+                user_id,
+                roots: vec![directory.path().to_path_buf()],
+            },
+            CancellationToken::new(),
+            progress,
+        )
+        .await
+        .expect("legacy title repair scan");
+    let repaired = repository
+        .search(
+            user_id,
+            SearchQuery {
+                text: "Quiet River".to_owned(),
+                artist: None,
+                release: None,
+                limit: 20,
+                offset: 0,
+            },
+        )
+        .await
+        .expect("search repaired title");
+    assert_eq!(repaired.len(), 1);
+    assert_eq!(repaired[0].id, track_id);
+    assert_eq!(
+        reader.call_count(),
+        2,
+        "legacy placeholder is reparsed once"
+    );
+
+    let (progress, _receiver) = progress_channel();
+    let unchanged = scanner
+        .scan(
+            ScanRequest {
+                user_id,
+                roots: vec![directory.path().to_path_buf()],
+            },
+            CancellationToken::new(),
+            progress,
+        )
+        .await
+        .expect("post-repair unchanged scan");
+    assert_eq!(unchanged.unchanged, 1);
+    assert_eq!(
+        reader.call_count(),
+        2,
+        "repaired title returns to unchanged fast path"
+    );
 }
 
 async fn setup() -> (Database, fishmuse_domain::UserId) {

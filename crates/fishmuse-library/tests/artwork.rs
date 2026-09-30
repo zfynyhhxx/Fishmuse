@@ -100,6 +100,7 @@ async fn mapped_resolver(
             normalized_path: normalize_path_bytes(&path),
             original_path: native_path_bytes(&path),
             content_fingerprint: format!("fixture-{file_name}"),
+            fallback_title: "Fixture".to_owned(),
             tags: ParsedTags {
                 title: Some("Fixture".to_owned()),
                 artists: vec!["Artist".to_owned()],

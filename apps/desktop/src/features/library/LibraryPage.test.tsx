@@ -5,13 +5,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "../../App";
 import { TrackTable } from "./TrackTable";
 import {
+  cancelLibraryScan,
+  chooseLibraryFolders,
   getAppStatus,
   listenForScanProgress,
   runPlaybackAction,
   searchLibrary,
+  startLibraryScan,
 } from "../../lib/ipc";
 
 vi.mock("../../lib/ipc", () => ({
+  cancelLibraryScan: vi.fn(),
+  chooseLibraryFolders: vi.fn(),
   getAppStatus: vi.fn(),
   getPlaybackState: vi.fn(async () => ({
     revision: 0,
@@ -29,6 +34,7 @@ vi.mock("../../lib/ipc", () => ({
   listenForServiceState: vi.fn(async () => vi.fn()),
   runPlaybackAction: vi.fn(),
   searchLibrary: vi.fn(),
+  startLibraryScan: vi.fn(),
 }));
 
 const track = (id: string, title: string) => ({
@@ -121,9 +127,87 @@ beforeEach(() => {
   });
   vi.mocked(listenForScanProgress).mockResolvedValue(vi.fn());
   vi.mocked(runPlaybackAction).mockResolvedValue({ view: null, queue: null });
+  vi.mocked(chooseLibraryFolders).mockResolvedValue([]);
+  vi.mocked(startLibraryScan).mockResolvedValue({
+    scan_id: "01999999-9999-7999-8999-999999999990",
+  });
+  vi.mocked(cancelLibraryScan).mockResolvedValue(undefined);
 });
 
 describe("local library", () => {
+  it("prevents overlapping scans, cancels the active ID, and recovers from scan action errors", async () => {
+    let publishProgress: Parameters<typeof listenForScanProgress>[0] | undefined;
+    vi.mocked(listenForScanProgress).mockImplementation(async (listener) => {
+      publishProgress = listener;
+      return () => undefined;
+    });
+    vi.mocked(searchLibrary).mockResolvedValue([]);
+    vi.mocked(chooseLibraryFolders)
+      .mockRejectedValueOnce(new Error("dialog failed"))
+      .mockResolvedValue(["C:\\Music"]);
+    vi.mocked(startLibraryScan)
+      .mockRejectedValueOnce(new Error("start failed"))
+      .mockResolvedValue({ scan_id: "01999999-9999-7999-8999-999999999990" });
+    vi.mocked(cancelLibraryScan)
+      .mockRejectedValueOnce(new Error("cancel failed"))
+      .mockResolvedValue(undefined);
+
+    render(<App />);
+    const scan = await screen.findByRole("button", { name: "Scan folders" });
+
+    fireEvent.click(scan);
+    expect((await screen.findByRole("alert")).textContent).toMatch(/folder chooser could not be opened/i);
+
+    fireEvent.click(scan);
+    expect((await screen.findByRole("alert")).textContent).toMatch(/scan could not be started/i);
+
+    fireEvent.click(scan);
+    await waitFor(() => expect(startLibraryScan).toHaveBeenCalledTimes(2));
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(scan.hasAttribute("disabled")).toBe(true);
+    const cancel = screen.getByRole("button", { name: "Cancel scan" });
+
+    fireEvent.click(cancel);
+    expect((await screen.findByRole("alert")).textContent).toMatch(/scan could not be cancelled/i);
+    expect(cancelLibraryScan).toHaveBeenLastCalledWith("01999999-9999-7999-8999-999999999990");
+
+    fireEvent.click(cancel);
+    await waitFor(() => expect(cancelLibraryScan).toHaveBeenCalledTimes(2));
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(scan.hasAttribute("disabled")).toBe(true);
+
+    act(() => publishProgress?.({
+      scan_id: "01999999-9999-7999-8999-999999999990",
+      discovered: 12,
+      parsed: 8,
+      unchanged: 4,
+      failed: 0,
+      status: "cancelled",
+      error: null,
+    }));
+    expect(await screen.findByText("Scan cancelled")).toBeTruthy();
+    await waitFor(() => expect(scan.hasAttribute("disabled")).toBe(false));
+    expect(screen.queryByRole("button", { name: "Cancel scan" })).toBeNull();
+
+    act(() => publishProgress?.({
+      scan_id: "01999999-9999-7999-8999-999999999991",
+      discovered: 4,
+      parsed: 0,
+      unchanged: 0,
+      failed: 4,
+      status: "failed",
+      error: {
+        code: "storage_failure",
+        category: "library",
+        user_message: "The scan stopped safely.",
+        retryable: true,
+        suggested_action: "retry",
+      },
+    }));
+    expect(await screen.findByText("Scan failed")).toBeTruthy();
+    expect(screen.getByText("The scan stopped safely.")).toBeTruthy();
+  });
+
   it("adapts the virtual row window to the measured track viewport", () => {
     observedHeight = 116;
     const tracks = Array.from({ length: 10_000 }, (_, index) =>
@@ -209,6 +293,29 @@ describe("local library", () => {
     expect(await screen.findByText("Track 100")).toBeTruthy();
   });
 
+  it("renders pagination failures and clears the stale error after a successful retry", async () => {
+    intersectionIsVisible = true;
+    const firstPage = Array.from({ length: 100 }, (_, index) => track(`track-${index}`, `Track ${index}`));
+    vi.mocked(searchLibrary)
+      .mockResolvedValueOnce(firstPage)
+      .mockRejectedValueOnce(new Error("page failed"))
+      .mockResolvedValueOnce([track("track-100", "Track 100")])
+      .mockResolvedValue([]);
+
+    const { container } = render(<App />);
+    expect((await screen.findByRole("alert")).textContent).toMatch(/more library results could not be loaded/i);
+    const sentinel = container.querySelector<HTMLElement>(".track-sentinel");
+    if (!sentinel || !intersectionCallback) throw new Error("paging sentinel missing");
+    act(() => intersectionCallback?.([
+      { target: sentinel, isIntersecting: true } as unknown as IntersectionObserverEntry,
+    ], {} as IntersectionObserver));
+
+    await waitFor(() => {
+      expect(screen.getByRole("table", { name: "Library tracks" }).getAttribute("aria-rowcount")).toBe("102");
+    });
+    await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+  });
+
   it("debounces search and prevents an older response from replacing newer results", async () => {
     vi.useFakeTimers();
     let resolveOld: ((value: ReturnType<typeof track>[]) => void) | undefined;
@@ -288,7 +395,9 @@ describe("local library", () => {
     vi.mocked(searchLibrary).mockResolvedValue([
       track("01999999-9999-7999-8999-999999999981", "River Song"),
     ]);
-    vi.mocked(runPlaybackAction).mockRejectedValue(new Error("startup failed"));
+    vi.mocked(runPlaybackAction)
+      .mockRejectedValueOnce(new Error("startup failed"))
+      .mockResolvedValue({ view: null, queue: null });
 
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Play River Song" }));
@@ -296,6 +405,9 @@ describe("local library", () => {
     const alert = await screen.findByRole("alert");
     expect(alert.textContent).toMatch(/playback service is unavailable/i);
     expect(alert.textContent?.toLowerCase()).not.toContain("foobar");
+
+    fireEvent.click(screen.getByRole("button", { name: "Play River Song" }));
+    await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
   });
 
   it("plays with the current ordered playable context and never includes disabled tracks", async () => {
