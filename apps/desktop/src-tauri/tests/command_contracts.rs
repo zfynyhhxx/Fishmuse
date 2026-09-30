@@ -18,7 +18,7 @@ use fishmuse_desktop::{
     },
     state::{
         AppState, AppStatusDto, LibraryScanService, PlaybackApplicationService, PlaybackCommandDto,
-        SearchQueryDto, StartTurnDto, UnavailablePlaybackService,
+        SearchQueryDto, StartTurnDto, UnavailablePlaybackService, default_playback_state,
     },
 };
 use fishmuse_domain::{
@@ -132,6 +132,17 @@ fn app_status_exposes_generic_service_states_only() {
     assert_eq!(value["ai"]["status"], "not_configured");
     assert!(value.get("foobar").is_none());
     assert!(value.get("deepseek").is_none());
+
+    let normal_state = serde_json::to_string(&default_playback_state()).unwrap();
+    assert!(!normal_state.to_ascii_lowercase().contains("foobar"));
+
+    let starting = serde_json::to_value(PlaybackServiceState {
+        status: PlaybackServiceStatus::Starting,
+        implementation: None,
+    })
+    .expect("starting service state");
+    assert_eq!(starting["status"], "starting");
+    assert!(!starting.to_string().to_ascii_lowercase().contains("foobar"));
 }
 
 #[test]
@@ -171,6 +182,8 @@ fn presentation_boundary_does_not_name_concrete_runtime_types() {
     assert!(!sources.contains("DeepSeekClient"));
     assert!(!sources.contains("AgentRunner"));
     assert!(!sources.contains("FoobarBackend"));
+    assert!(!sources.contains("launch_playback_backend"));
+    assert!(sources.contains("retry_playback_service"));
 }
 
 #[derive(Default)]
@@ -245,7 +258,7 @@ struct FakePlayback {
 
 #[async_trait]
 impl PlaybackApplicationService for FakePlayback {
-    async fn launch(&self) -> AppResult<()> {
+    async fn retry(&self) -> AppResult<()> {
         self.launched.store(true, Ordering::SeqCst);
         Ok(())
     }
@@ -414,9 +427,9 @@ async fn fake_services_preserve_events_cancellation_and_shutdown_contracts() {
         test_state(Arc::new(FakeAI::ready(saw_context.clone()))).await;
 
     state
-        .launch_playback_backend()
+        .retry_playback_service()
         .await
-        .expect("launch playback backend");
+        .expect("retry playback service");
     assert!(playback_launched.load(Ordering::SeqCst));
 
     let scan = state

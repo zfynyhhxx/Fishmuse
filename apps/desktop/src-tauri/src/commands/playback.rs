@@ -23,6 +23,6 @@ pub async fn get_playback_state(
 }
 
 #[tauri::command]
-pub async fn launch_playback_backend(state: State<'_, Arc<AppState>>) -> Result<(), CommandError> {
-    state.launch_playback_backend().await
+pub async fn retry_playback_service(state: State<'_, Arc<AppState>>) -> Result<(), CommandError> {
+    state.retry_playback_service().await
 }

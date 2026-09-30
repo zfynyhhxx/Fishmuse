@@ -6,7 +6,7 @@ export type ServiceImplementation = {
 };
 
 export type PlaybackServiceState = {
-  status: "ready" | "disconnected" | "unavailable";
+  status: "starting" | "ready" | "disconnected" | "unavailable";
   implementation: ServiceImplementation | null;
 };
 

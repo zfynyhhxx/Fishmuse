@@ -2,10 +2,11 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import App from "./App";
-import { getAppStatus } from "./lib/ipc";
+import { getAppStatus, retryPlaybackService } from "./lib/ipc";
 
 vi.mock("./lib/ipc", () => ({
   getAppStatus: vi.fn(),
+  retryPlaybackService: vi.fn(),
   getPlaybackState: vi.fn(async () => ({ revision: 0, status: "unavailable", track_id: null, position_ms: 0, duration_ms: null })),
   listenForPlaybackState: vi.fn(async () => vi.fn()),
   listenForScanProgress: vi.fn(async () => vi.fn()),
@@ -71,6 +72,7 @@ describe("FishMuse desktop shell", () => {
       expect(screen.getByText("Playback: Disconnected")).toBeTruthy();
       expect(screen.getByText("AI: Unavailable")).toBeTruthy();
     });
+    expect(retryPlaybackService).not.toHaveBeenCalled();
   });
 
   it("keeps the local-first shell usable when application services are unavailable", async () => {

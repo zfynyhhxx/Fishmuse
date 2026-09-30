@@ -25,7 +25,7 @@ const status = {
   database: "ready" as const,
   playback: {
     status: "disconnected" as const,
-    implementation: { id: "foobar2000", display_name: "foobar2000" },
+    implementation: null,
   },
   ai: {
     status: "not_configured" as const,

@@ -1,7 +1,7 @@
 use std::{collections::HashMap, sync::Arc};
 
 use fishmuse_domain::{AppError, AppResult, ErrorCategory, ErrorCode, OperationId};
-use tokio::sync::{Mutex, watch};
+use tokio::sync::{Mutex, broadcast, watch};
 
 use crate::{
     CommandFingerprint, OperationClaim, OperationStore, PlaybackBackend, PlaybackCommand,
@@ -110,6 +110,10 @@ impl PlaybackManager {
 
     pub async fn snapshot(&self) -> AppResult<PlaybackSnapshot> {
         self.backend.snapshot().await
+    }
+
+    pub fn subscribe(&self) -> broadcast::Receiver<crate::PlaybackEvent> {
+        self.backend.subscribe()
     }
 }
 

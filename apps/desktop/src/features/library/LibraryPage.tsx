@@ -24,7 +24,7 @@ export function LibraryPage() {
     try {
       playbackStore.accept(await executePlayback({ kind: "play", track_id: track.id, operation_id: newUuidV7() }));
     } catch {
-      setActionError("Playback is unavailable. Start foobar2000 from Settings.");
+      setActionError("The playback service is unavailable. Retry from advanced diagnostics in Settings.");
     }
   };
 

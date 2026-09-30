@@ -9,18 +9,18 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use fishmuse_domain::{AppResult, UserId};
 use fishmuse_library::LibraryQueryPort;
-use fishmuse_playback::PlaybackManager;
+use fishmuse_playback::PlaybackControl;
 use serde_json::Value;
 
 pub struct MusicToolExecutor {
     user_id: UserId,
     library: Arc<dyn LibraryQueryPort>,
-    playback: PlaybackManager,
+    playback: Arc<dyn PlaybackControl>,
 }
 
 impl MusicToolExecutor {
     #[must_use]
-    pub fn new<L>(user_id: UserId, library: Arc<L>, playback: PlaybackManager) -> Self
+    pub fn new<L>(user_id: UserId, library: Arc<L>, playback: Arc<dyn PlaybackControl>) -> Self
     where
         L: LibraryQueryPort + 'static,
     {
@@ -42,7 +42,7 @@ impl ToolExecutor for MusicToolExecutor {
             _ => {
                 playback::execute(
                     self.library.as_ref(),
-                    &self.playback,
+                    self.playback.as_ref(),
                     self.user_id,
                     name,
                     arguments,

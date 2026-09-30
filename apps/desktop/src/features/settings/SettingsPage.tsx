@@ -5,7 +5,7 @@ import {
   configureDeepSeekKey,
   deleteDeepSeekKey,
   getAISettings,
-  launchPlaybackBackend,
+  retryPlaybackService,
 } from "../../lib/ipc";
 import { useAppStore } from "../../state/appStore";
 
@@ -16,7 +16,7 @@ export function SettingsPage() {
   const [settings, setSettings] = useState<AISettings | null>(null);
   const [apiKey, setApiKey] = useState("");
   const [notice, setNotice] = useState<string | null>(null);
-  const [launchingPlayback, setLaunchingPlayback] = useState(false);
+  const [retryingPlayback, setRetryingPlayback] = useState(false);
 
   const refresh = async () => setSettings(await getAISettings());
   useEffect(() => {
@@ -50,19 +50,16 @@ export function SettingsPage() {
     await Promise.all([refresh(), refreshStatus()]);
   };
 
-  const startPlayback = async () => {
-    setLaunchingPlayback(true);
+  const retryPlayback = async () => {
+    setRetryingPlayback(true);
     try {
-      await launchPlaybackBackend();
-      setNotice(
-        "foobar2000 started. Waiting for the FishMuse component to connect. " +
-        "If status stays disconnected, install the FishMuse component and restart foobar2000.",
-      );
+      await retryPlaybackService();
+      setNotice("Playback service retry requested.");
       await refreshStatus();
     } catch {
-      setNotice("foobar2000 could not be started. Confirm it is installed and try again.");
+      setNotice("The playback service could not be started. Review advanced diagnostics and try again.");
     } finally {
-      setLaunchingPlayback(false);
+      setRetryingPlayback(false);
     }
   };
 
@@ -103,13 +100,16 @@ export function SettingsPage() {
       </article>
       <article className="panel">
         <h2>Playback service</h2>
-        <p>Playback backend: {playback}</p>
         <p>Status: {status.playback.status}</p>
-        {status.playback.status !== "ready" ? (
-          <button type="button" disabled={launchingPlayback} onClick={() => void startPlayback()}>
-            {launchingPlayback ? "Starting foobar2000…" : "Start foobar2000"}
-          </button>
-        ) : null}
+        <div aria-label="Advanced playback diagnostics">
+          <h3>Advanced diagnostics</h3>
+          <p>Playback implementation: {playback}</p>
+          {status.playback.status !== "ready" ? (
+            <button type="button" disabled={retryingPlayback} onClick={() => void retryPlayback()}>
+              {retryingPlayback ? "Retrying playback service…" : "Retry playback service"}
+            </button>
+          ) : null}
+        </div>
       </article>
       {notice ? <p role="status">{notice}</p> : null}
     </section>

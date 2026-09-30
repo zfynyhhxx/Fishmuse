@@ -6,7 +6,7 @@ import {
   configureDeepSeekKey,
   getAISettings,
   getAppStatus,
-  launchPlaybackBackend,
+  retryPlaybackService,
 } from "../../lib/ipc";
 
 vi.mock("../../lib/ipc", () => ({
@@ -14,7 +14,7 @@ vi.mock("../../lib/ipc", () => ({
   deleteDeepSeekKey: vi.fn(),
   getAISettings: vi.fn(),
   getAppStatus: vi.fn(),
-  launchPlaybackBackend: vi.fn(),
+  retryPlaybackService: vi.fn(),
   getPlaybackState: vi.fn(async () => ({ revision: 0, status: "unavailable", track_id: null, position_ms: 0, duration_ms: null })),
   listenForPlaybackState: vi.fn(async () => vi.fn()),
   listenForScanProgress: vi.fn(async () => vi.fn()),
@@ -32,7 +32,7 @@ beforeEach(() => {
     database: "ready",
     playback: {
       status: "disconnected",
-      implementation: { id: "foobar2000", display_name: "foobar2000" },
+      implementation: { id: "managed", display_name: "Managed playback service" },
     },
     ai: {
       status: "ready",
@@ -54,7 +54,7 @@ beforeEach(() => {
     },
   });
   vi.mocked(configureDeepSeekKey).mockResolvedValue();
-  vi.mocked(launchPlaybackBackend).mockResolvedValue();
+  vi.mocked(retryPlaybackService).mockResolvedValue();
 });
 
 describe("settings", () => {
@@ -65,9 +65,9 @@ describe("settings", () => {
     expect(keyInput.getAttribute("type")).toBe("password");
     expect(screen.getByText("Provider: DeepSeek")).toBeTruthy();
     expect(screen.getByText("Model: deepseek-flash")).toBeTruthy();
-    expect(screen.getByText("Playback backend: foobar2000")).toBeTruthy();
+    expect(screen.getByText("Playback implementation: Managed playback service")).toBeTruthy();
     expect(screen.getByText(/live test budget has reached the warning level/i)).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Start foobar2000" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Retry playback service" })).toBeTruthy();
 
     fireEvent.change(keyInput, { target: { value: "sk-super-secret" } });
     fireEvent.click(screen.getByRole("button", { name: "Save API key" }));
@@ -79,14 +79,14 @@ describe("settings", () => {
     expect(document.body.textContent).not.toContain("sk-super-secret");
   });
 
-  it("launches foobar2000 from the disconnected playback panel", async () => {
+  it("keeps backend retry inside advanced diagnostics", async () => {
     render(<App />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "Start foobar2000" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Retry playback service" }));
 
-    await waitFor(() => expect(launchPlaybackBackend).toHaveBeenCalledOnce());
+    await waitFor(() => expect(retryPlaybackService).toHaveBeenCalledOnce());
     expect(screen.getByRole("status").textContent).toMatch(
-      /stays disconnected, install the FishMuse component/i,
+      /playback service retry requested/i,
     );
   });
 });

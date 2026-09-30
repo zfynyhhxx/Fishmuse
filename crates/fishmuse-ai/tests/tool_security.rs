@@ -12,8 +12,8 @@ use fishmuse_domain::{
 };
 use fishmuse_library::{LibraryQueryPort, SearchQuery};
 use fishmuse_playback::{
-    MemoryOperationStore, PlaybackBackend, PlaybackBackendKind, PlaybackCommand, PlaybackEvent,
-    PlaybackManager, PlaybackSnapshot, PlaybackStatus,
+    MemoryOperationStore, PlaybackBackend, PlaybackBackendKind, PlaybackCommand, PlaybackControl,
+    PlaybackEvent, PlaybackManager, PlaybackSnapshot, PlaybackStatus,
 };
 use futures_util::StreamExt;
 use serde_json::json;
@@ -304,7 +304,8 @@ async fn music_executor_resolves_track_ids_locally_and_routes_side_effects_throu
     });
     let backend = Arc::new(RecordingPlaybackBackend::new());
     let manager = PlaybackManager::new(backend.clone(), Arc::new(MemoryOperationStore::default()));
-    let registry = ToolRegistry::new(Arc::new(MusicToolExecutor::new(user_id, library, manager)));
+    let playback: Arc<dyn PlaybackControl> = Arc::new(manager);
+    let registry = ToolRegistry::new(Arc::new(MusicToolExecutor::new(user_id, library, playback)));
 
     registry
         .execute(

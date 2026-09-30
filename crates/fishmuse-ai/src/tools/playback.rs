@@ -1,13 +1,13 @@
 use fishmuse_domain::{AppError, AppResult, ErrorCategory, ErrorCode, OperationId, UserId};
 use fishmuse_library::LibraryQueryPort;
-use fishmuse_playback::{PlaybackCommand, PlaybackManager};
+use fishmuse_playback::{PlaybackCommand, PlaybackControl};
 use serde_json::Value;
 
 use super::library::{internal, string, track_id};
 
 pub(super) async fn execute(
     library: &dyn LibraryQueryPort,
-    playback: &PlaybackManager,
+    playback: &dyn PlaybackControl,
     user_id: UserId,
     name: &str,
     arguments: &Value,

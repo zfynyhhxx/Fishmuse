@@ -105,7 +105,7 @@ beforeEach(() => {
     database: "ready",
     playback: {
       status: "ready",
-      implementation: { id: "foobar2000", display_name: "foobar2000" },
+      implementation: null,
     },
     ai: { status: "not_configured", implementation: null },
   });
@@ -269,6 +269,20 @@ describe("local library", () => {
       });
     });
     expect(JSON.stringify(vi.mocked(executePlayback).mock.calls)).not.toMatch(/[A-Z]:\\/);
+  });
+
+  it("reports automatic playback startup failure without naming its implementation", async () => {
+    vi.mocked(searchLibrary).mockResolvedValue([
+      track("01999999-9999-7999-8999-999999999981", "River Song"),
+    ]);
+    vi.mocked(executePlayback).mockRejectedValue(new Error("startup failed"));
+
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Play River Song" }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toMatch(/playback service is unavailable/i);
+    expect(alert.textContent?.toLowerCase()).not.toContain("foobar");
   });
 
   it("refreshes the current query when a scan completes", async () => {

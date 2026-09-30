@@ -16,8 +16,8 @@ use fishmuse_library::{
     SearchQuery, TagReader,
 };
 use fishmuse_playback::{
-    PlaybackCommand, PlaybackEvent, PlaybackManager, PlaybackServiceState, PlaybackServiceStatus,
-    PlaybackSnapshot, PlaybackStatus, ServiceImplementation as PlaybackImplementation,
+    PlaybackCommand, PlaybackControl, PlaybackEvent, PlaybackManager, PlaybackServiceState,
+    PlaybackServiceStatus, PlaybackSnapshot, PlaybackStatus,
 };
 use fishmuse_storage::Database;
 use futures_util::{StreamExt, stream};
@@ -29,6 +29,7 @@ use tokio_util::sync::CancellationToken;
 use crate::{
     error::{CommandError, invalid_input, unavailable},
     events::{ApplicationEvent, ApplicationEventSink},
+    playback_lifecycle::ManagedPlaybackService,
 };
 
 const MAX_LIBRARY_SEARCH_LIMIT: u32 = 100;
@@ -249,13 +250,13 @@ where
 
 #[async_trait]
 pub trait PlaybackApplicationService: Send + Sync {
-    async fn launch(&self) -> AppResult<()> {
+    async fn retry(&self) -> AppResult<()> {
         Err(AppError {
             code: ErrorCode::BackendUnavailable,
             category: ErrorCategory::Playback,
-            user_message: "The playback backend could not be started.".to_owned(),
+            user_message: "The playback service could not be started.".to_owned(),
             retryable: true,
-            suggested_action: Some("install_or_start_playback_backend".to_owned()),
+            suggested_action: Some("open_advanced_playback_diagnostics".to_owned()),
             technical_context: None,
         })
     }
@@ -265,6 +266,10 @@ pub trait PlaybackApplicationService: Send + Sync {
     async fn shutdown(&self);
 
     fn subscribe(&self) -> Option<broadcast::Receiver<PlaybackEvent>> {
+        None
+    }
+
+    fn subscribe_service_state(&self) -> Option<watch::Receiver<PlaybackServiceState>> {
         None
     }
 }
@@ -280,6 +285,33 @@ impl PlaybackApplicationService for PlaybackManager {
     }
 
     async fn shutdown(&self) {}
+}
+
+#[async_trait]
+impl PlaybackApplicationService for ManagedPlaybackService {
+    async fn retry(&self) -> AppResult<()> {
+        ManagedPlaybackService::retry(self).await
+    }
+
+    async fn execute(&self, command: PlaybackCommand) -> AppResult<PlaybackSnapshot> {
+        PlaybackControl::execute(self, command).await
+    }
+
+    async fn snapshot(&self) -> AppResult<PlaybackSnapshot> {
+        PlaybackControl::snapshot(self).await
+    }
+
+    async fn shutdown(&self) {
+        ManagedPlaybackService::shutdown(self).await;
+    }
+
+    fn subscribe(&self) -> Option<broadcast::Receiver<PlaybackEvent>> {
+        Some(PlaybackControl::subscribe(self))
+    }
+
+    fn subscribe_service_state(&self) -> Option<watch::Receiver<PlaybackServiceState>> {
+        Some(ManagedPlaybackService::subscribe_service_state(self))
+    }
 }
 
 pub struct AppState {
@@ -336,7 +368,33 @@ impl AppState {
             shutdown_steps: Mutex::new(Vec::new()),
         });
         state.start_playback_event_bridge();
+        state.start_playback_service_state_bridge();
         state
+    }
+
+    fn start_playback_service_state_bridge(self: &Arc<Self>) {
+        let Some(mut receiver) = self.playback.subscribe_service_state() else {
+            return;
+        };
+        let state = self.clone();
+        let cancellation = self.playback_cancellation.clone();
+        tokio::spawn(async move {
+            loop {
+                let changed = tokio::select! {
+                    () = cancellation.cancelled() => break,
+                    changed = receiver.changed() => changed,
+                };
+                if changed.is_err() {
+                    break;
+                }
+                let mut service = receiver.borrow().clone();
+                if service.implementation.is_none() {
+                    service.implementation = state.playback_state.borrow().implementation.clone();
+                }
+                state.playback_state.send_replace(service);
+                state.emit_service_state();
+            }
+        });
     }
 
     fn start_playback_event_bridge(self: &Arc<Self>) {
@@ -365,11 +423,8 @@ impl AppState {
     }
 
     fn publish_playback_snapshot(&self, snapshot: PlaybackSnapshot) {
-        let status = if snapshot.status == PlaybackStatus::Unavailable {
-            PlaybackServiceStatus::Disconnected
-        } else {
-            PlaybackServiceStatus::Ready
-        };
+        let status =
+            service_status_for_snapshot(self.playback_state.borrow().status, snapshot.status);
         replace_playback_service_status(&self.playback_state, status);
         let _ = self
             .events
@@ -640,8 +695,8 @@ impl AppState {
             .map_err(Into::into)
     }
 
-    pub async fn launch_playback_backend(&self) -> Result<(), CommandError> {
-        self.playback.launch().await.map_err(Into::into)
+    pub async fn retry_playback_service(&self) -> Result<(), CommandError> {
+        self.playback.retry().await.map_err(Into::into)
     }
 
     pub async fn configure_ai_key(&self, secret: SecretStringDto) -> Result<(), CommandError> {
@@ -770,6 +825,19 @@ impl AppState {
     }
 }
 
+fn service_status_for_snapshot(
+    current: PlaybackServiceStatus,
+    snapshot: PlaybackStatus,
+) -> PlaybackServiceStatus {
+    match (current, snapshot) {
+        (PlaybackServiceStatus::Starting, PlaybackStatus::Unavailable) => {
+            PlaybackServiceStatus::Starting
+        }
+        (_, PlaybackStatus::Unavailable) => PlaybackServiceStatus::Disconnected,
+        _ => PlaybackServiceStatus::Ready,
+    }
+}
+
 pub struct UnavailableAIService {
     state: AIServiceState,
 }
@@ -814,9 +882,9 @@ impl PlaybackApplicationService for UnavailablePlaybackService {
         Err(AppError {
             code: ErrorCode::BackendUnavailable,
             category: ErrorCategory::Playback,
-            user_message: "The playback backend is unavailable.".to_owned(),
+            user_message: "The playback service is unavailable.".to_owned(),
             retryable: true,
-            suggested_action: Some("start_playback_backend".to_owned()),
+            suggested_action: Some("open_advanced_playback_diagnostics".to_owned()),
             technical_context: None,
         })
     }
@@ -842,10 +910,7 @@ fn _assert_path_safe_source(_source: PlayableSource) {}
 pub fn default_playback_state() -> PlaybackServiceState {
     PlaybackServiceState {
         status: PlaybackServiceStatus::Disconnected,
-        implementation: Some(PlaybackImplementation {
-            id: "foobar2000".to_owned(),
-            display_name: "foobar2000".to_owned(),
-        }),
+        implementation: None,
     }
 }
 
@@ -866,9 +931,9 @@ mod tests {
 
     #[test]
     fn playback_service_state_replace_releases_read_borrow_before_write() {
-        let implementation = PlaybackImplementation {
-            id: "foobar2000".to_owned(),
-            display_name: "foobar2000".to_owned(),
+        let implementation = fishmuse_playback::ServiceImplementation {
+            id: "managed".to_owned(),
+            display_name: "Managed playback service".to_owned(),
         };
         let (state, _) = watch::channel(PlaybackServiceState {
             status: PlaybackServiceStatus::Disconnected,
@@ -879,5 +944,20 @@ mod tests {
 
         assert_eq!(state.borrow().status, PlaybackServiceStatus::Ready);
         assert_eq!(state.borrow().implementation, Some(implementation));
+    }
+
+    #[test]
+    fn unavailable_snapshot_does_not_hide_managed_startup_progress() {
+        assert_eq!(
+            service_status_for_snapshot(
+                PlaybackServiceStatus::Starting,
+                PlaybackStatus::Unavailable,
+            ),
+            PlaybackServiceStatus::Starting
+        );
+        assert_eq!(
+            service_status_for_snapshot(PlaybackServiceStatus::Ready, PlaybackStatus::Unavailable,),
+            PlaybackServiceStatus::Disconnected
+        );
     }
 }

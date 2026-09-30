@@ -111,8 +111,8 @@ export const executePlayback = (command: PlaybackCommand) =>
   invokeCommand<PlaybackSnapshot>("execute_playback", { command });
 export const getPlaybackState = () =>
   invokeCommand<PlaybackSnapshot>("get_playback_state");
-export const launchPlaybackBackend = () =>
-  invokeCommand<void>("launch_playback_backend");
+export const retryPlaybackService = () =>
+  invokeCommand<void>("retry_playback_service");
 export const configureDeepSeekKey = (apiKey: string) =>
   invokeCommand<void>("configure_deepseek_key", { apiKey: { api_key: apiKey } });
 export const deleteDeepSeekKey = () =>

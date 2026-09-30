@@ -5,7 +5,7 @@ const label = (value: string) =>
 
 export function ServiceStatus({ status }: { status: AppStatus }) {
   return (
-    <section className="service-strip" aria-label="Service status">
+    <section className="service-strip" aria-label="Service status" aria-live="polite">
       <span>Database: {label(status.database)}</span>
       <span>Playback: {label(status.playback.status)}</span>
       <span>AI: {label(status.ai.status)}</span>

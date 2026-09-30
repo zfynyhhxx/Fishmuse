@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { AI_EVENT, launchPlaybackBackend, parseAIEventEnvelope, startAITurn } from "./ipc";
+import { AI_EVENT, parseAIEventEnvelope, retryPlaybackService, startAITurn } from "./ipc";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn() }));
@@ -16,12 +16,12 @@ beforeEach(() => {
 });
 
 describe("desktop IPC boundary", () => {
-  it("invokes the playback backend launcher", async () => {
+  it("invokes only the advanced playback service retry", async () => {
     mockedInvoke.mockResolvedValue(undefined);
 
-    await launchPlaybackBackend();
+    await retryPlaybackService();
 
-    expect(mockedInvoke).toHaveBeenCalledWith("launch_playback_backend", undefined);
+    expect(mockedInvoke).toHaveBeenCalledWith("retry_playback_service", undefined);
   });
 
   it("subscribes before starting an AI turn and forwards optional structured context", async () => {

@@ -1,13 +1,9 @@
 #[cfg(all(windows, not(feature = "e2e")))]
-use std::{
-    ffi::{OsStr, OsString},
-    os::windows::ffi::{OsStrExt, OsStringExt},
-    path::PathBuf,
-    process::Command,
-};
+use std::{ffi::OsString, os::windows::ffi::OsStringExt, path::PathBuf, process::Command};
 use std::{
     path::Path,
     sync::{Arc, RwLock},
+    time::Duration,
 };
 
 use async_trait::async_trait;
@@ -25,11 +21,12 @@ use fishmuse_domain::MediaAssetId;
 use fishmuse_domain::{AppError, AppResult, ErrorCategory, ErrorCode};
 use fishmuse_library::{LibraryScanner, LoftyTagReader};
 #[cfg(all(windows, not(feature = "e2e")))]
-use fishmuse_playback::foobar::{FoobarBackend, FoobarConfig, MediaPathResolver};
+use fishmuse_playback::foobar::{
+    ConnectionState as FoobarConnectionState, FoobarBackend, FoobarConfig, MediaPathResolver,
+};
 use fishmuse_playback::{
-    PlaybackBackend, PlaybackBackendKind, PlaybackCommand, PlaybackEvent, PlaybackManager,
-    PlaybackServiceState, PlaybackServiceStatus, PlaybackSnapshot, PlaybackStatus,
-    ServiceImplementation as PlaybackImplementation,
+    PlaybackBackend, PlaybackBackendKind, PlaybackCommand, PlaybackControl, PlaybackEvent,
+    PlaybackManager, PlaybackServiceState, PlaybackServiceStatus, PlaybackSnapshot, PlaybackStatus,
 };
 use fishmuse_storage::{
     Database, SqliteConversationRepository, SqliteLibraryRepository, SqliteOperationStore,
@@ -37,21 +34,28 @@ use fishmuse_storage::{
 #[cfg(all(windows, not(feature = "e2e")))]
 use sha2::{Digest, Sha256};
 use tauri::{Manager, RunEvent};
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, watch};
 
 pub mod commands;
 pub mod error;
 pub mod events;
+pub mod playback_lifecycle;
 pub mod state;
 
 use commands::{
     ai::{cancel_ai_turn, start_ai_turn},
     choose_library_folders, get_app_status,
     library::{cancel_library_scan, get_library_item, search_library, start_library_scan},
-    playback::{execute_playback, get_playback_state, launch_playback_backend},
+    playback::{execute_playback, get_playback_state, retry_playback_service},
     settings::{configure_deepseek_key, delete_deepseek_key, get_ai_settings},
 };
 use events::TauriEventSink;
+#[cfg(all(windows, not(feature = "e2e")))]
+use playback_lifecycle::WindowsPlaybackLauncher;
+use playback_lifecycle::{
+    ManagedPlaybackService, PlaybackConnection, PlaybackConnectionState,
+    UnavailablePlaybackLauncher,
+};
 use state::{AppState, PlaybackApplicationService, UnavailableAIService};
 
 async fn bootstrap(data_dir: &Path, events: Arc<TauriEventSink>) -> AppResult<Arc<AppState>> {
@@ -75,13 +79,13 @@ async fn bootstrap(data_dir: &Path, events: Arc<TauriEventSink>) -> AppResult<Ar
         .load_api_key(ProviderId::deepseek())
         .await
         .unwrap_or(None);
-    let (playback_manager, playback, playback_state) =
+    let (playback_control, playback, playback_state) =
         build_playback_service(database.pool().clone(), user_id).await;
     let initial_ai = build_ai_service(
         api_key,
         user_id,
         library.clone(),
-        playback_manager.clone(),
+        playback_control.clone(),
         database.pool().clone(),
     );
     let ai = Arc::new(ReloadableAIService::new(initial_ai));
@@ -90,7 +94,7 @@ async fn bootstrap(data_dir: &Path, events: Arc<TauriEventSink>) -> AppResult<Ar
         ai: ai.clone(),
         user_id,
         library: library.clone(),
-        playback: playback_manager,
+        playback: playback_control,
         pool: database.pool().clone(),
     });
 
@@ -145,7 +149,7 @@ struct ReloadingCredentialStore {
     ai: Arc<ReloadableAIService>,
     user_id: fishmuse_domain::UserId,
     library: Arc<SqliteLibraryRepository>,
-    playback: PlaybackManager,
+    playback: Arc<dyn PlaybackControl>,
     pool: sqlx::SqlitePool,
 }
 
@@ -194,7 +198,7 @@ fn build_ai_service(
     api_key: Option<secrecy::SecretString>,
     user_id: fishmuse_domain::UserId,
     library: Arc<SqliteLibraryRepository>,
-    playback: PlaybackManager,
+    playback: Arc<dyn PlaybackControl>,
     pool: sqlx::SqlitePool,
 ) -> Arc<dyn AIService> {
     let Some(api_key) = api_key else {
@@ -223,7 +227,7 @@ async fn build_playback_service(
     pool: sqlx::SqlitePool,
     user_id: fishmuse_domain::UserId,
 ) -> (
-    PlaybackManager,
+    Arc<dyn PlaybackControl>,
     Arc<dyn PlaybackApplicationService>,
     PlaybackServiceState,
 ) {
@@ -237,99 +241,39 @@ async fn build_playback_service(
         if let Ok(backend) = FoobarBackend::connect(config).await {
             let backend = Arc::new(backend);
             let operations = Arc::new(SqliteOperationStore::new(pool, user_id));
-            let manager = PlaybackManager::new(backend.clone(), operations);
-            let service: Arc<dyn PlaybackApplicationService> =
-                Arc::new(FoobarPlaybackApplicationService {
-                    manager: manager.clone(),
-                    backend,
-                });
-            return (manager, service, playback_service_state());
+            let manager = Arc::new(PlaybackManager::new(backend.clone(), operations));
+            let connection = Arc::new(FoobarPlaybackConnection::new(backend));
+            let managed = Arc::new(ManagedPlaybackService::new(
+                manager,
+                Arc::new(WindowsPlaybackLauncher),
+                connection,
+                Duration::from_secs(5),
+            ));
+            let control: Arc<dyn PlaybackControl> = managed.clone();
+            let service: Arc<dyn PlaybackApplicationService> = managed;
+            return (control, service, playback_service_state());
         }
     }
 
     let operations = Arc::new(SqliteOperationStore::new(pool, user_id));
     let backend = Arc::new(DisconnectedPlaybackBackend::new());
-    let manager = PlaybackManager::new(backend, operations);
-    (manager.clone(), Arc::new(manager), playback_service_state())
+    let manager = Arc::new(PlaybackManager::new(backend, operations));
+    let managed = Arc::new(ManagedPlaybackService::new(
+        manager,
+        Arc::new(UnavailablePlaybackLauncher),
+        Arc::new(DisconnectedPlaybackConnection::new()),
+        Duration::from_secs(5),
+    ));
+    let control: Arc<dyn PlaybackControl> = managed.clone();
+    let service: Arc<dyn PlaybackApplicationService> = managed;
+    (control, service, playback_service_state())
 }
 
 fn playback_service_state() -> PlaybackServiceState {
     PlaybackServiceState {
         status: PlaybackServiceStatus::Disconnected,
-        implementation: Some(PlaybackImplementation {
-            id: "foobar2000".to_owned(),
-            display_name: "foobar2000".to_owned(),
-        }),
+        implementation: None,
     }
-}
-
-#[cfg(all(windows, not(feature = "e2e")))]
-struct FoobarPlaybackApplicationService {
-    manager: PlaybackManager,
-    backend: Arc<FoobarBackend>,
-}
-
-#[cfg(all(windows, not(feature = "e2e")))]
-#[async_trait]
-impl PlaybackApplicationService for FoobarPlaybackApplicationService {
-    async fn launch(&self) -> AppResult<()> {
-        launch_foobar2000()?;
-        self.backend.reconnect_now();
-        Ok(())
-    }
-
-    async fn execute(&self, command: PlaybackCommand) -> AppResult<PlaybackSnapshot> {
-        self.manager.execute(command).await
-    }
-
-    async fn snapshot(&self) -> AppResult<PlaybackSnapshot> {
-        self.manager.snapshot().await
-    }
-
-    async fn shutdown(&self) {
-        self.backend.shutdown().await;
-    }
-
-    fn subscribe(&self) -> Option<broadcast::Receiver<PlaybackEvent>> {
-        Some(self.backend.subscribe())
-    }
-}
-
-#[cfg(all(windows, not(feature = "e2e")))]
-fn launch_foobar2000() -> AppResult<()> {
-    use std::ptr::null_mut;
-    use windows_sys::Win32::UI::{Shell::ShellExecuteW, WindowsAndMessaging::SW_SHOWNORMAL};
-
-    let verb = OsStr::new("open")
-        .encode_wide()
-        .chain(std::iter::once(0))
-        .collect::<Vec<_>>();
-    let executable = OsStr::new("foobar2000.exe")
-        .encode_wide()
-        .chain(std::iter::once(0))
-        .collect::<Vec<_>>();
-    // SAFETY: both strings are NUL-terminated and remain alive for the duration of the call.
-    let result = unsafe {
-        ShellExecuteW(
-            null_mut(),
-            verb.as_ptr(),
-            executable.as_ptr(),
-            null_mut(),
-            null_mut(),
-            SW_SHOWNORMAL,
-        )
-    };
-    if result as isize <= 32 {
-        return Err(AppError {
-            code: ErrorCode::BackendUnavailable,
-            category: ErrorCategory::Playback,
-            user_message: "foobar2000 could not be started.".to_owned(),
-            retryable: true,
-            suggested_action: Some("install_foobar2000".to_owned()),
-            technical_context: Some(format!("ShellExecuteW returned {}", result as isize)),
-        });
-    }
-    Ok(())
 }
 
 #[cfg(all(windows, not(feature = "e2e")))]
@@ -404,6 +348,75 @@ fn current_user_pipe_name() -> AppResult<String> {
         })?;
     let digest = Sha256::digest(sid.as_bytes());
     Ok(format!(r"\\.\pipe\FishMuse.Foobar.v1.{digest:x}"))
+}
+
+#[cfg(all(windows, not(feature = "e2e")))]
+struct FoobarPlaybackConnection {
+    backend: Arc<FoobarBackend>,
+    state: watch::Sender<PlaybackConnectionState>,
+}
+
+#[cfg(all(windows, not(feature = "e2e")))]
+impl FoobarPlaybackConnection {
+    fn new(backend: Arc<FoobarBackend>) -> Self {
+        let mut backend_state = backend.connection_state();
+        let initial = map_foobar_connection(&backend_state.borrow());
+        let (state, _) = watch::channel(initial);
+        let state_bridge = state.clone();
+        tokio::spawn(async move {
+            while backend_state.changed().await.is_ok() {
+                state_bridge.send_replace(map_foobar_connection(&backend_state.borrow()));
+            }
+        });
+        Self { backend, state }
+    }
+}
+
+#[cfg(all(windows, not(feature = "e2e")))]
+fn map_foobar_connection(state: &FoobarConnectionState) -> PlaybackConnectionState {
+    if matches!(state, FoobarConnectionState::Connected { .. }) {
+        PlaybackConnectionState::Ready
+    } else {
+        PlaybackConnectionState::Unavailable
+    }
+}
+
+#[cfg(all(windows, not(feature = "e2e")))]
+#[async_trait]
+impl PlaybackConnection for FoobarPlaybackConnection {
+    fn subscribe(&self) -> watch::Receiver<PlaybackConnectionState> {
+        self.state.subscribe()
+    }
+
+    fn reconnect_now(&self) {
+        self.backend.reconnect_now();
+    }
+
+    async fn shutdown(&self) {
+        self.backend.shutdown().await;
+    }
+}
+
+struct DisconnectedPlaybackConnection {
+    state: watch::Sender<PlaybackConnectionState>,
+}
+
+impl DisconnectedPlaybackConnection {
+    fn new() -> Self {
+        let (state, _) = watch::channel(PlaybackConnectionState::Unavailable);
+        Self { state }
+    }
+}
+
+#[async_trait]
+impl PlaybackConnection for DisconnectedPlaybackConnection {
+    fn subscribe(&self) -> watch::Receiver<PlaybackConnectionState> {
+        self.state.subscribe()
+    }
+
+    fn reconnect_now(&self) {}
+
+    async fn shutdown(&self) {}
 }
 
 struct DisconnectedPlaybackBackend {
@@ -493,7 +506,7 @@ pub fn run() {
             cancel_ai_turn,
             execute_playback,
             get_playback_state,
-            launch_playback_backend,
+            retry_playback_service,
         ])
         .build(tauri::generate_context!())
         .expect("error while building FishMuse desktop application");
