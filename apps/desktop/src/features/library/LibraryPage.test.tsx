@@ -1,4 +1,5 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import type { ComponentType } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import App from "../../App";
@@ -32,13 +33,71 @@ const track = (id: string, title: string) => ({
   playable: true,
 });
 
+const ResponsiveTrackTable = TrackTable as unknown as ComponentType<{
+  tracks: ReturnType<typeof track>[];
+  onPlay: (value: ReturnType<typeof track>) => void;
+  hasMore: boolean;
+  loadingMore: boolean;
+  onLoadMore: () => void;
+}>;
+
+let observedHeight = 464;
+let resizeCallback: ResizeObserverCallback | undefined;
+let intersectionCallback: IntersectionObserverCallback | undefined;
+let intersectionIsVisible = false;
+
+class TestResizeObserver implements ResizeObserver {
+  constructor(callback: ResizeObserverCallback) {
+    resizeCallback = callback;
+  }
+
+  observe(target: Element) {
+    resizeCallback?.([
+      { target, contentRect: { height: observedHeight } as DOMRectReadOnly } as ResizeObserverEntry,
+    ], this);
+  }
+
+  unobserve() {}
+  disconnect() {}
+}
+
+class TestIntersectionObserver implements IntersectionObserver {
+  readonly root = null;
+  readonly rootMargin = "0px";
+  readonly thresholds = [0];
+
+  constructor(callback: IntersectionObserverCallback) {
+    intersectionCallback = callback;
+  }
+
+  observe(target: Element) {
+    if (intersectionIsVisible) {
+      intersectionCallback?.([
+        { target, isIntersecting: true } as IntersectionObserverEntry,
+      ], this);
+    }
+  }
+
+  unobserve() {}
+  disconnect() {}
+  takeRecords() { return []; }
+}
+
 afterEach(() => {
   vi.useRealTimers();
+  vi.unstubAllGlobals();
   cleanup();
 });
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(searchLibrary).mockReset();
+  observedHeight = 464;
+  resizeCallback = undefined;
+  intersectionCallback = undefined;
+  intersectionIsVisible = false;
+  vi.stubGlobal("ResizeObserver", TestResizeObserver);
+  vi.stubGlobal("IntersectionObserver", TestIntersectionObserver);
   localStorage.setItem("fishmuse.onboarding.complete", "true");
   window.history.replaceState({}, "", "#/library");
   vi.mocked(getAppStatus).mockResolvedValue({
@@ -61,26 +120,63 @@ beforeEach(() => {
 });
 
 describe("local library", () => {
+  it("adapts the virtual row window to the measured track viewport", () => {
+    observedHeight = 116;
+    const tracks = Array.from({ length: 10_000 }, (_, index) =>
+      track(`track-${index}`, `Track ${index}`),
+    );
+    render(
+      <ResponsiveTrackTable
+        tracks={tracks}
+        onPlay={vi.fn()}
+        hasMore={false}
+        loadingMore={false}
+        onLoadMore={vi.fn()}
+      />,
+    );
+
+    expect(screen.getAllByRole("row")).toHaveLength(11);
+    expect(resizeCallback).toBeDefined();
+
+    observedHeight = 580;
+    const viewport = document.querySelector<HTMLElement>(".track-viewport");
+    if (!viewport || !resizeCallback) throw new Error("observed track viewport missing");
+    act(() => resizeCallback?.([
+      { target: viewport, contentRect: { height: observedHeight } as DOMRectReadOnly } as unknown as ResizeObserverEntry,
+    ], {} as ResizeObserver));
+
+    expect(screen.getAllByRole("row")).toHaveLength(19);
+  });
+
   it("keeps a 10,000-track collection out of the DOM by rendering a virtual window", () => {
     const tracks = Array.from({ length: 10_000 }, (_, index) =>
       track(`track-${index}`, `Track ${index}`),
     );
-    render(<TrackTable tracks={tracks} onPlay={vi.fn()} />);
+    render(
+      <ResponsiveTrackTable
+        tracks={tracks}
+        onPlay={vi.fn()}
+        hasMore={false}
+        loadingMore={false}
+        onLoadMore={vi.fn()}
+      />,
+    );
 
     expect(screen.getAllByRole("row").length).toBeLessThan(50);
     expect(screen.getByText("Track 0")).toBeTruthy();
     expect(screen.queryByText("Track 9999")).toBeNull();
   });
 
-  it("loads user-visible library pages beyond the AI tool result limit", async () => {
+  it("loads each visible library offset once without an out-of-viewport button", async () => {
+    intersectionIsVisible = true;
     const firstPage = Array.from({ length: 100 }, (_, index) => track(`track-${index}`, `Track ${index}`));
+    let resolveNext: ((tracks: ReturnType<typeof track>[]) => void) | undefined;
     vi.mocked(searchLibrary)
       .mockResolvedValueOnce(firstPage)
-      .mockResolvedValueOnce([track("track-100", "Track 100")]);
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveNext = resolve; }));
 
     const { container } = render(<App />);
     expect(await screen.findByText("Track 0")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Load more tracks" }));
 
     await waitFor(() => {
       expect(searchLibrary).toHaveBeenLastCalledWith({
@@ -91,6 +187,15 @@ describe("local library", () => {
         offset: 100,
       });
     });
+    expect(screen.queryByRole("button", { name: "Load more tracks" })).toBeNull();
+    const sentinel = container.querySelector<HTMLElement>(".track-sentinel");
+    if (!sentinel || !intersectionCallback) throw new Error("paging sentinel missing");
+    act(() => intersectionCallback?.([
+      { target: sentinel, isIntersecting: true } as unknown as IntersectionObserverEntry,
+    ], {} as IntersectionObserver));
+    expect(searchLibrary).toHaveBeenCalledTimes(2);
+
+    await act(async () => resolveNext?.([track("track-100", "Track 100")]));
     const viewport = container.querySelector<HTMLElement>(".track-viewport");
     expect(viewport).toBeTruthy();
     if (viewport) {
