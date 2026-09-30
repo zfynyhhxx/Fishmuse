@@ -8,11 +8,11 @@ Last updated: 2026-09-30
 - Head before Task 15: `2908ac9 feat(ui): add streaming AI chat and now playing`
 - Completed implementation tasks: Tasks 1–15, including Task 11.5
 - Current task: V0.1 runtime reliability repair after real-use feedback
-- Remaining release gate: stage and independently verify the approved standalone Windows x64 release directory
+- Remaining release gate: none
 
 ## Next autonomous action
 
-Commit the verified real-connection repair, rebuild release from that commit, and verify the copied standalone artifact independently from the development target directory.
+Preserve the standalone V0.1 artifact and the verified repair commits; await the operator's branch-integration choice.
 
 ## Current blocker
 
@@ -24,4 +24,4 @@ None. The operator authorized the profile installation and standalone release de
 
 ## Completion state
 
-The runtime repair projects scanned tags into searchable tracks, repairs legacy unprojected assets (including moved files), creates AI conversations before child messages, classifies storage failures correctly, launches foobar2000 through Windows App Paths, nudges reconnect, and builds debug/release binaries as Windows GUI applications. The authorized Release component installed with SHA-256 `357B3B46F1F319A682AF3B064E6CC9E51A1C4A4F1158EAA9B5C8993BF88E17F7`; a real protocol handshake and read-only state request passed. A live desktop run then exposed and repaired a connected-state watch self-deadlock. The rerun stayed responsive with `Database: Ready`, `Playback: Ready`, and `AI: Ready`. A repair scan projected all 2,188 legacy assets, and the production search command returned real tracks. The post-repair unit/static gate, Tauri/WebView2 E2E 4/4, component CTest, secret scan, and diff check pass; standalone release staging remains in progress.
+The runtime repair projects scanned tags into searchable tracks, repairs legacy unprojected assets (including moved files), creates AI conversations before child messages, classifies storage failures correctly, launches foobar2000 through Windows App Paths, nudges reconnect, and builds debug/release binaries as Windows GUI applications. The authorized Release component installed with SHA-256 `357B3B46F1F319A682AF3B064E6CC9E51A1C4A4F1158EAA9B5C8993BF88E17F7`; a real protocol handshake and read-only state request passed. A live desktop run then exposed and repaired a connected-state watch self-deadlock. The rerun stayed responsive with `Database: Ready`, `Playback: Ready`, and `AI: Ready`. A repair scan projected all 2,188 legacy assets, and the production search command returned real tracks. The post-repair unit/static gate, Tauri/WebView2 E2E 4/4, component CTest, secret scan, and diff check pass. The independent `FishMuse-v0.1-windows-x64` directory contains only the portable app, component, Chinese guide, version record, and checksums; the copied app SHA-256 is `6872C0D960DEA3AA7F96403DEBF4D609BF58BD7D80D49546D837DB2C6532E23F`. It launched from that directory with all three services ready and no console window.
