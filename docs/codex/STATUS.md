@@ -7,16 +7,16 @@ Last updated: 2026-09-30
 - Branch: `feature/fishmuse-v0.1-muse-loop`
 - Head before Task 15: `2908ac9 feat(ui): add streaming AI chat and now playing`
 - Completed implementation tasks: Tasks 1–15, including Task 11.5
-- Current task: V0.1 usability repair design review after real-user UI/playback feedback
+- Current task: V0.1 usability repair implementation-plan review
 - Remaining release gate: none
 
 ## Next autonomous action
 
-Obtain written review of `docs/superpowers/specs/2026-09-30-fishmuse-v0.1-usability-repair-design.md`, then create its TDD implementation plan and execute it in the current linked worktree.
+Obtain review of `docs/superpowers/plans/2026-09-30-fishmuse-v0.1-usability-repair.md`, then execute its ten TDD tasks in the current linked worktree.
 
 ## Current blocker
 
-Written usability-repair design review is pending. There is no technical or authorization blocker to the later local implementation and verification work.
+Implementation-plan review and execution-method choice are pending. There is no technical or authorization blocker to later local implementation and verification work.
 
 ## Required external gates
 
