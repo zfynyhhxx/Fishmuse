@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 
+import { AppShell } from "./components/AppShell";
 import { LibraryPage } from "./features/library/LibraryPage";
 import { ChatPage } from "./features/chat/ChatPage";
 import { NowPlayingPage } from "./features/now-playing/NowPlayingPage";
@@ -22,10 +23,11 @@ export function Router() {
     window.addEventListener("hashchange", onHashChange);
     return () => window.removeEventListener("hashchange", onHashChange);
   }, []);
-
-  if (route === "onboarding") return <OnboardingPage />;
-  if (route === "settings") return <SettingsPage />;
-  if (route === "chat") return <ChatPage />;
-  if (route === "now-playing") return <NowPlayingPage />;
-  return <LibraryPage />;
+  let page;
+  if (route === "onboarding") page = <OnboardingPage />;
+  else if (route === "settings") page = <SettingsPage />;
+  else if (route === "chat") page = <ChatPage />;
+  else if (route === "now-playing") page = <NowPlayingPage />;
+  else page = <LibraryPage />;
+  return <AppShell routeKey={route}>{page}</AppShell>;
 }

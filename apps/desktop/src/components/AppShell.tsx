@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useLayoutEffect, useRef, type ReactNode } from "react";
 
 import { useAppStore } from "../state/appStore";
 import { MiniPlayer } from "./MiniPlayer";
@@ -11,8 +11,22 @@ const links = [
   ["Settings", "#/settings"],
 ] as const;
 
-export function AppShell({ children }: { children: ReactNode }) {
+export function AppShell({ children, routeKey }: { children: ReactNode; routeKey: string }) {
   const { status } = useAppStore();
+  const viewport = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    const element = viewport.current;
+    if (!element) return;
+    const heading = element.querySelector<HTMLHeadingElement>("h1");
+    if (heading) {
+      heading.tabIndex = -1;
+      heading.focus({ preventScroll: true });
+    }
+    element.scrollTop = 0;
+    element.scrollLeft = 0;
+  }, [routeKey]);
+
   return (
     <div className="shell-grid">
       <header className="brand-block">
@@ -23,7 +37,9 @@ export function AppShell({ children }: { children: ReactNode }) {
         {links.map(([name, href]) => <a href={href} key={href}>{name}</a>)}
       </nav>
       <ServiceStatus status={status} />
-      <main className="page-content">{children}</main>
+      <main className="page-content">
+        <div className="page-scroll" ref={viewport}>{children}</div>
+      </main>
       <MiniPlayer />
     </div>
   );
