@@ -1,6 +1,12 @@
-use std::{collections::HashMap, path::PathBuf, sync::Arc, time::Duration};
+use std::{
+    collections::HashMap,
+    path::PathBuf,
+    sync::{Arc, Mutex as StdMutex},
+    time::Duration,
+};
 
 use async_trait::async_trait;
+use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64_STANDARD};
 use fishmuse_ai::{
     AI_APPLICATION_CONTRACT_VERSION, AIApplicationEvent, AIApplicationFailureReason,
     AIEventEnvelope, AIService, AIServiceState, AIServiceStatus, AIServiceTurn,
@@ -12,8 +18,8 @@ use fishmuse_domain::{
     PlayableSource, ScanId, TrackId, TrackSummary, UserId,
 };
 use fishmuse_library::{
-    LibraryQueryPort, LibraryScanner, ScanProgress, ScanRequest, ScanStatus, ScanSummary,
-    SearchQuery, TagReader,
+    ArtworkResolver, LibraryQueryPort, LibraryScanner, ScanProgress, ScanRequest, ScanStatus,
+    ScanSummary, SearchQuery, TagReader,
 };
 use fishmuse_playback::{
     PlaybackCommand, PlaybackControl, PlaybackEvent, PlaybackManager, PlaybackServiceState,
@@ -201,23 +207,69 @@ impl From<QueueSnapshot> for QueueSnapshotDto {
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct PlaybackSnapshotDto {
-    pub revision: u64,
-    pub status: PlaybackStatus,
-    pub track_id: Option<TrackId>,
-    pub position_ms: u64,
-    pub duration_ms: Option<u64>,
+pub struct PlaybackTrackDto {
+    pub id: TrackId,
+    pub title: String,
+    pub artist_names: Vec<String>,
+    pub release_title: Option<String>,
+    pub artwork_available: bool,
 }
 
-impl From<PlaybackSnapshot> for PlaybackSnapshotDto {
-    fn from(snapshot: PlaybackSnapshot) -> Self {
-        Self {
-            revision: snapshot.revision,
-            status: snapshot.status,
-            track_id: snapshot.track_id,
-            position_ms: snapshot.position_ms,
-            duration_ms: snapshot.duration_ms,
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct PlaybackViewDto {
+    pub revision: u64,
+    pub status: PlaybackStatus,
+    pub position_ms: u64,
+    pub duration_ms: Option<u64>,
+    pub volume: f32,
+    pub muted: bool,
+    pub track: Option<PlaybackTrackDto>,
+    pub queue: QueueSnapshotDto,
+    pub external: bool,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ArtworkDto {
+    pub data_url: String,
+}
+
+#[derive(Default)]
+pub struct PlaybackViewProjector {
+    current: StdMutex<Option<PlaybackViewDto>>,
+}
+
+impl PlaybackViewProjector {
+    pub fn accept(&self, candidate: PlaybackViewDto) -> bool {
+        self.accepted(candidate).is_some()
+    }
+
+    fn accepted(&self, mut candidate: PlaybackViewDto) -> Option<PlaybackViewDto> {
+        let mut current = self.current.lock().expect("playback view lock poisoned");
+        if current
+            .as_ref()
+            .is_some_and(|existing| candidate.revision <= existing.revision)
+        {
+            return None;
         }
+        if candidate.status == PlaybackStatus::Unavailable
+            && candidate.track.is_none()
+            && let Some(existing) = current.as_ref()
+        {
+            candidate.track.clone_from(&existing.track);
+            candidate.external = existing.external;
+        }
+        *current = Some(candidate.clone());
+        Some(candidate)
+    }
+
+    #[must_use]
+    pub fn current(&self) -> Option<PlaybackViewDto> {
+        self.current
+            .lock()
+            .expect("playback view lock poisoned")
+            .clone()
     }
 }
 
@@ -408,6 +460,8 @@ pub struct AppState {
     scanner: Arc<dyn LibraryScanService>,
     library: Arc<dyn LibraryQueryPort>,
     playback: Arc<dyn PlaybackApplicationService>,
+    artwork: ArtworkResolver,
+    playback_views: PlaybackViewProjector,
     ai: Arc<dyn AIService>,
     credentials: Arc<dyn CredentialStore>,
     events: Arc<dyn ApplicationEventSink>,
@@ -438,11 +492,13 @@ impl AppState {
         let (ai_state, _) = watch::channel(ai.state());
         let state = Arc::new(Self {
             database: Mutex::new(Some(database)),
-            pool,
+            pool: pool.clone(),
             user_id,
             scanner,
             library,
             playback,
+            artwork: ArtworkResolver::new(pool.clone()),
+            playback_views: PlaybackViewProjector::default(),
             ai,
             credentials,
             events,
@@ -491,8 +547,10 @@ impl AppState {
         let state = self.clone();
         let cancellation = self.playback_cancellation.clone();
         tokio::spawn(async move {
-            if let Ok(snapshot) = state.playback.snapshot().await {
-                state.publish_playback_snapshot(snapshot);
+            if let Ok(snapshot) = state.playback.snapshot().await
+                && let Ok(Some(view)) = state.project_playback_snapshot(snapshot).await
+            {
+                state.publish_playback_view(view);
             }
             loop {
                 let event = tokio::select! {
@@ -504,19 +562,68 @@ impl AppState {
                     Err(broadcast::error::RecvError::Lagged(_)) => continue,
                     Err(broadcast::error::RecvError::Closed) => break,
                 };
-                state.publish_playback_snapshot(event.into_snapshot());
+                if let Ok(Some(view)) = state.project_playback_snapshot(event.into_snapshot()).await
+                {
+                    state.publish_playback_view(view);
+                }
             }
         });
     }
 
-    fn publish_playback_snapshot(&self, snapshot: PlaybackSnapshot) {
-        let status =
-            service_status_for_snapshot(self.playback_state.borrow().status, snapshot.status);
+    fn publish_playback_view(&self, view: PlaybackViewDto) {
+        let status = service_status_for_snapshot(self.playback_state.borrow().status, view.status);
         replace_playback_service_status(&self.playback_state, status);
-        let _ = self
-            .events
-            .emit(ApplicationEvent::PlaybackState(snapshot.into()));
+        let _ = self.events.emit(ApplicationEvent::PlaybackState(view));
         self.emit_service_state();
+    }
+
+    async fn project_playback_snapshot(
+        &self,
+        snapshot: PlaybackSnapshot,
+    ) -> AppResult<Option<PlaybackViewDto>> {
+        let queue = self
+            .playback
+            .queue_snapshot()
+            .await
+            .map(QueueSnapshotDto::from)
+            .unwrap_or_else(|_| empty_queue());
+        let (track, external) = match snapshot.track_id {
+            Some(track_id) => match self.library.get_item(self.user_id, track_id).await? {
+                Some(item) => {
+                    let artwork_available = self
+                        .artwork
+                        .resolve(self.user_id, track_id)
+                        .await
+                        .ok()
+                        .flatten()
+                        .is_some();
+                    (
+                        Some(PlaybackTrackDto {
+                            id: item.track.id,
+                            title: item.track.title,
+                            artist_names: item.track.artist_names,
+                            release_title: item.track.release_title,
+                            artwork_available,
+                        }),
+                        false,
+                    )
+                }
+                None => (None, true),
+            },
+            None => (None, false),
+        };
+        let candidate = PlaybackViewDto {
+            revision: snapshot.revision,
+            status: snapshot.status,
+            position_ms: snapshot.position_ms,
+            duration_ms: snapshot.duration_ms,
+            volume: snapshot.volume,
+            muted: snapshot.volume <= f32::EPSILON,
+            track,
+            queue,
+            external,
+        };
+        Ok(self.playback_views.accepted(candidate))
     }
 
     #[must_use]
@@ -732,7 +839,7 @@ impl AppState {
     pub async fn execute_playback(
         &self,
         command: PlaybackCommandDto,
-    ) -> Result<PlaybackSnapshotDto, CommandError> {
+    ) -> Result<PlaybackViewDto, CommandError> {
         let command = match command {
             PlaybackCommandDto::Play {
                 track_id,
@@ -762,23 +869,65 @@ impl AppState {
                 PlaybackCommand::SkipNext { operation_id }
             }
         };
-        let snapshot: PlaybackSnapshotDto = self
+        let snapshot = self
             .playback
             .execute(command)
             .await
-            .map_err(CommandError::from)?
-            .into();
-        let _ = self
-            .events
-            .emit(ApplicationEvent::PlaybackState(snapshot.clone()));
-        Ok(snapshot)
+            .map_err(CommandError::from)?;
+        let view = self
+            .project_playback_snapshot(snapshot)
+            .await
+            .map_err(CommandError::from)?;
+        if let Some(view) = view {
+            self.publish_playback_view(view.clone());
+            return Ok(view);
+        }
+        self.playback_views.current().ok_or_else(|| {
+            CommandError::from(AppError {
+                code: ErrorCode::Internal,
+                category: ErrorCategory::Playback,
+                user_message: "Playback state is temporarily unavailable.".to_owned(),
+                retryable: true,
+                suggested_action: Some("retry".to_owned()),
+                technical_context: None,
+            })
+        })
     }
 
-    pub async fn playback_snapshot(&self) -> Result<PlaybackSnapshotDto, CommandError> {
-        self.playback
-            .snapshot()
+    pub async fn playback_snapshot(&self) -> Result<PlaybackViewDto, CommandError> {
+        let snapshot = self.playback.snapshot().await.map_err(CommandError::from)?;
+        self.project_playback_snapshot(snapshot)
             .await
-            .map(Into::into)
+            .map_err(CommandError::from)?
+            .or_else(|| self.playback_views.current())
+            .ok_or_else(|| {
+                CommandError::from(AppError {
+                    code: ErrorCode::Internal,
+                    category: ErrorCategory::Playback,
+                    user_message: "Playback state is temporarily unavailable.".to_owned(),
+                    retryable: true,
+                    suggested_action: Some("retry".to_owned()),
+                    technical_context: None,
+                })
+            })
+    }
+
+    pub async fn track_artwork(
+        &self,
+        track_id: TrackId,
+    ) -> Result<Option<ArtworkDto>, CommandError> {
+        self.artwork
+            .resolve(self.user_id, track_id)
+            .await
+            .map(|artwork| {
+                artwork.map(|artwork| ArtworkDto {
+                    data_url: format!(
+                        "data:{};base64,{}",
+                        artwork.mime_type,
+                        BASE64_STANDARD.encode(artwork.bytes)
+                    ),
+                })
+            })
             .map_err(Into::into)
     }
 
@@ -941,6 +1090,15 @@ fn service_status_for_snapshot(
         }
         (_, PlaybackStatus::Unavailable) => PlaybackServiceStatus::Disconnected,
         _ => PlaybackServiceStatus::Ready,
+    }
+}
+
+fn empty_queue() -> QueueSnapshotDto {
+    QueueSnapshotDto {
+        track_ids: Vec::new(),
+        current_index: None,
+        can_previous: false,
+        can_next: false,
     }
 }
 

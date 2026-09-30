@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+mod artwork;
 mod canonicalize;
 mod diagnostics;
 mod extensions;
@@ -9,6 +10,7 @@ mod query;
 mod scanner;
 mod tag_reader;
 
+pub use artwork::{Artwork, ArtworkResolver, MAX_ARTWORK_BYTES};
 pub use canonicalize::{CanonicalTags, canonicalize_tags, normalize_search_text};
 pub use diagnostics::DiagnosticCode;
 pub use extensions::{ExtensionDisposition, classify_extension};

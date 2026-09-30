@@ -18,7 +18,8 @@ use fishmuse_desktop::{
     },
     state::{
         AppState, AppStatusDto, LibraryScanService, PlaybackApplicationService, PlaybackCommandDto,
-        QueueCommandDto, SearchQueryDto, StartTurnDto, UnavailablePlaybackService,
+        PlaybackTrackDto, PlaybackViewDto, PlaybackViewProjector, QueueCommandDto,
+        QueueSnapshotDto, SearchQueryDto, StartTurnDto, UnavailablePlaybackService,
         default_playback_state,
     },
 };
@@ -128,6 +129,87 @@ fn queue_commands_are_closed_logical_id_only_dtos() {
         }))
         .is_err()
     );
+}
+
+fn playback_view(
+    revision: u64,
+    status: PlaybackStatus,
+    track: Option<PlaybackTrackDto>,
+    external: bool,
+) -> PlaybackViewDto {
+    PlaybackViewDto {
+        revision,
+        status,
+        position_ms: 42,
+        duration_ms: Some(100),
+        volume: 0.5,
+        muted: false,
+        track,
+        queue: QueueSnapshotDto {
+            track_ids: Vec::new(),
+            current_index: None,
+            can_previous: false,
+            can_next: false,
+        },
+        external,
+    }
+}
+
+#[test]
+fn playback_views_expose_only_safe_mapped_or_external_metadata() {
+    let track_id = TrackId::new();
+    let mapped = playback_view(
+        8,
+        PlaybackStatus::Playing,
+        Some(PlaybackTrackDto {
+            id: track_id,
+            title: "A safe title".to_owned(),
+            artist_names: vec!["Artist".to_owned()],
+            release_title: Some("Release".to_owned()),
+            artwork_available: true,
+        }),
+        false,
+    );
+    let value = serde_json::to_value(mapped).expect("mapped playback view");
+    assert_eq!(value["track"]["id"], track_id.as_uuid().to_string());
+    assert_eq!(value["track"]["title"], "A safe title");
+    assert_eq!(value["muted"], false);
+    assert_eq!(value["external"], false);
+
+    let external = serde_json::to_value(playback_view(9, PlaybackStatus::Playing, None, true))
+        .expect("external playback view");
+    assert_eq!(external["external"], true);
+    assert!(external["track"].is_null());
+
+    let serialized = format!("{value}{external}").to_ascii_lowercase();
+    for forbidden in ["path", "raw_tags", "backend", "foobar"] {
+        assert!(!serialized.contains(forbidden), "leaked {forbidden}");
+    }
+}
+
+#[test]
+fn stale_playback_revisions_cannot_replace_the_latest_safe_projection() {
+    let projector = PlaybackViewProjector::default();
+    let track = PlaybackTrackDto {
+        id: TrackId::new(),
+        title: "Latest".to_owned(),
+        artist_names: vec!["Artist".to_owned()],
+        release_title: None,
+        artwork_available: false,
+    };
+    assert!(projector.accept(playback_view(
+        20,
+        PlaybackStatus::Playing,
+        Some(track.clone()),
+        false,
+    )));
+    assert!(!projector.accept(playback_view(19, PlaybackStatus::Paused, None, true,)));
+    assert_eq!(projector.current().unwrap().revision, 20);
+
+    assert!(projector.accept(playback_view(21, PlaybackStatus::Unavailable, None, false,)));
+    let disconnected = projector.current().unwrap();
+    assert_eq!(disconnected.track, Some(track));
+    assert!(!disconnected.external);
 }
 
 #[test]

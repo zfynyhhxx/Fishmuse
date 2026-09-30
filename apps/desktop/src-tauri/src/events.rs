@@ -5,7 +5,7 @@ use fishmuse_domain::{AppError, AppResult, ErrorCategory, ErrorCode};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
 
-use crate::state::{PlaybackSnapshotDto, ScanProgressDto, ServiceStateEventDto};
+use crate::state::{PlaybackViewDto, ScanProgressDto, ServiceStateEventDto};
 
 pub const SCAN_PROGRESS_EVENT: &str = "fishmuse://scan-progress";
 pub const AI_EVENT: &str = "fishmuse://ai-event";
@@ -17,7 +17,7 @@ pub const SERVICE_STATE_EVENT: &str = "fishmuse://service-state";
 pub enum ApplicationEvent {
     ScanProgress(ScanProgressDto),
     Ai(AIEventEnvelope),
-    PlaybackState(PlaybackSnapshotDto),
+    PlaybackState(PlaybackViewDto),
     ServiceState(ServiceStateEventDto),
 }
 

@@ -49,7 +49,7 @@ use commands::{
     library::{cancel_library_scan, get_library_item, search_library, start_library_scan},
     playback::{
         execute_playback, execute_queue_command, get_playback_queue, get_playback_state,
-        retry_playback_service,
+        get_track_artwork, retry_playback_service,
     },
     settings::{configure_deepseek_key, delete_deepseek_key, get_ai_settings},
 };
@@ -516,6 +516,7 @@ pub fn run() {
             execute_queue_command,
             get_playback_queue,
             get_playback_state,
+            get_track_artwork,
             retry_playback_service,
         ])
         .build(tauri::generate_context!())
