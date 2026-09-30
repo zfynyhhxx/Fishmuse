@@ -441,3 +441,34 @@ async fn terminal_duration_is_merged_before_exact_completion_threshold() {
     assert_eq!(exact_event.listened_ms, 50_000);
     assert!(exact_event.completed);
 }
+
+#[tokio::test]
+async fn shutdown_interrupts_an_active_listen_without_advancing_the_revision() {
+    let clock = TestClock::at(1_800_000_000);
+    let sink = MemorySink::default();
+    let track_id = TrackId::new();
+    let mut tracker = ListenTracker::start(sink.clone(), clock.clone())
+        .await
+        .expect("tracker");
+
+    tracker
+        .handle(event(7, PlaybackStatus::Playing, Some(track_id), None))
+        .await
+        .expect("play");
+    clock.advance_seconds(12);
+
+    assert!(tracker.shutdown().await.expect("first shutdown"));
+    assert!(!tracker.shutdown().await.expect("idempotent shutdown"));
+
+    let interrupted = final_for(&sink, track_id);
+    assert_eq!(interrupted.listened_ms, 12_000);
+    assert!(interrupted.interrupted);
+    assert!(!interrupted.completed);
+
+    assert!(
+        tracker
+            .handle(event(8, PlaybackStatus::Stopped, None, None))
+            .await
+            .expect("next authoritative revision is still accepted")
+    );
+}

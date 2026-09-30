@@ -103,7 +103,7 @@ async fn bootstrap(data_dir: &Path, events: Arc<TauriEventSink>) -> AppResult<Ar
         pool: database.pool().clone(),
     });
 
-    Ok(AppState::new(
+    AppState::new(
         database,
         user_id,
         scanner,
@@ -113,7 +113,8 @@ async fn bootstrap(data_dir: &Path, events: Arc<TauriEventSink>) -> AppResult<Ar
         ai,
         credentials,
         events,
-    ))
+    )
+    .await
 }
 
 struct ReloadableAIService {

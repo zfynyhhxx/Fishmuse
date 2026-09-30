@@ -537,7 +537,9 @@ async fn test_state(
         ai,
         Arc::new(MemoryCredentials::default()),
         events.clone(),
-    );
+    )
+    .await
+    .expect("application state");
     (state, events, playback_shutdown, playback_launched, pool)
 }
 
@@ -627,7 +629,13 @@ async fn fake_services_preserve_events_cancellation_and_shutdown_contracts() {
     assert!(playback_shutdown.load(Ordering::SeqCst));
     assert_eq!(
         state.shutdown_steps().await,
-        vec!["ai_turns", "scans", "playback", "database"]
+        vec![
+            "ai_turns",
+            "scans",
+            "playback",
+            "listening_history",
+            "database"
+        ]
     );
 }
 
@@ -758,7 +766,9 @@ async fn disconnected_playback_does_not_disable_non_playback_features() {
         Arc::new(fishmuse_desktop::state::UnavailableAIService::new(false)),
         Arc::new(MemoryCredentials::default()),
         Arc::new(MemoryEventSink::default()),
-    );
+    )
+    .await
+    .expect("application state");
 
     assert_eq!(
         state.status().playback.status,

@@ -22,10 +22,10 @@ use fishmuse_library::{
     ScanSummary, SearchQuery, TagReader,
 };
 use fishmuse_playback::{
-    PlaybackCommand, PlaybackControl, PlaybackEvent, PlaybackManager, PlaybackServiceState,
-    PlaybackServiceStatus, PlaybackSnapshot, PlaybackStatus,
+    ListenTracker, PlaybackCommand, PlaybackControl, PlaybackEvent, PlaybackManager,
+    PlaybackServiceState, PlaybackServiceStatus, PlaybackSnapshot, PlaybackStatus, SystemClock,
 };
-use fishmuse_storage::Database;
+use fishmuse_storage::{Database, SqliteListeningSink};
 use futures_util::{StreamExt, stream};
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
@@ -312,6 +312,7 @@ pub enum ScanEventStatus {
 pub struct ServiceStateEventDto {
     pub playback: PlaybackServiceState,
     pub ai: AIServiceState,
+    pub history: CoreServiceStatus,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -469,6 +470,7 @@ pub struct AppState {
     playback: Arc<dyn PlaybackApplicationService>,
     artwork: ArtworkResolver,
     playback_views: PlaybackViewProjector,
+    listening: Mutex<ListenTracker<SqliteListeningSink, SystemClock>>,
     ai: Arc<dyn AIService>,
     credentials: Arc<dyn CredentialStore>,
     events: Arc<dyn ApplicationEventSink>,
@@ -477,13 +479,14 @@ pub struct AppState {
     playback_cancellation: CancellationToken,
     jobs_changed: Notify,
     playback_state: watch::Sender<PlaybackServiceState>,
+    history_state: watch::Sender<CoreServiceStatus>,
     ai_state: watch::Sender<AIServiceState>,
     shutdown_steps: Mutex<Vec<&'static str>>,
 }
 
 impl AppState {
     #[allow(clippy::too_many_arguments)]
-    pub fn new(
+    pub async fn new(
         database: Database,
         user_id: UserId,
         scanner: Arc<dyn LibraryScanService>,
@@ -493,9 +496,13 @@ impl AppState {
         ai: Arc<dyn AIService>,
         credentials: Arc<dyn CredentialStore>,
         events: Arc<dyn ApplicationEventSink>,
-    ) -> Arc<Self> {
+    ) -> AppResult<Arc<Self>> {
         let pool = database.pool().clone();
+        let listening =
+            ListenTracker::start(SqliteListeningSink::new(pool.clone(), user_id), SystemClock)
+                .await?;
         let (playback_state, _) = watch::channel(playback_state);
+        let (history_state, _) = watch::channel(CoreServiceStatus::Ready);
         let (ai_state, _) = watch::channel(ai.state());
         let state = Arc::new(Self {
             database: Mutex::new(Some(database)),
@@ -506,6 +513,7 @@ impl AppState {
             playback,
             artwork: ArtworkResolver::new(pool.clone()),
             playback_views: PlaybackViewProjector::default(),
+            listening: Mutex::new(listening),
             ai,
             credentials,
             events,
@@ -514,12 +522,13 @@ impl AppState {
             playback_cancellation: CancellationToken::new(),
             jobs_changed: Notify::new(),
             playback_state,
+            history_state,
             ai_state,
             shutdown_steps: Mutex::new(Vec::new()),
         });
         state.start_playback_event_bridge();
         state.start_playback_service_state_bridge();
-        state
+        Ok(state)
     }
 
     fn start_playback_service_state_bridge(self: &Arc<Self>) {
@@ -569,6 +578,19 @@ impl AppState {
                     Err(broadcast::error::RecvError::Lagged(_)) => continue,
                     Err(broadcast::error::RecvError::Closed) => break,
                 };
+                let history_status = match state.listening.lock().await.handle(event.clone()).await
+                {
+                    Ok(true) => CoreServiceStatus::Ready,
+                    Ok(false) => *state.history_state.borrow(),
+                    Err(_) => {
+                        tracing::warn!("Listening history is temporarily unavailable.");
+                        CoreServiceStatus::Unavailable
+                    }
+                };
+                if *state.history_state.borrow() != history_status {
+                    state.history_state.send_replace(history_status);
+                    state.emit_service_state();
+                }
                 if let Ok(Some(view)) = state.project_playback_snapshot(event.into_snapshot()).await
                 {
                     state.publish_playback_view(view);
@@ -1051,6 +1073,7 @@ impl AppState {
             .emit(ApplicationEvent::ServiceState(ServiceStateEventDto {
                 playback: self.playback_state.borrow().clone(),
                 ai: self.ai_state.borrow().clone(),
+                history: *self.history_state.borrow(),
             }));
     }
 
@@ -1068,6 +1091,10 @@ impl AppState {
         self.shutdown_steps.lock().await.push("playback");
         self.playback_cancellation.cancel();
         self.playback.shutdown().await;
+        self.shutdown_steps.lock().await.push("listening_history");
+        if self.listening.lock().await.shutdown().await.is_err() {
+            tracing::warn!("Listening history could not be finalized during shutdown.");
+        }
         self.shutdown_steps.lock().await.push("database");
         if let Some(database) = self.database.lock().await.take() {
             database.close().await;

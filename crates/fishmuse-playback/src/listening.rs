@@ -158,6 +158,12 @@ where
         Ok(true)
     }
 
+    pub async fn shutdown(&mut self) -> AppResult<bool> {
+        let had_active = self.active.is_some();
+        self.settle(self.clock.now(), true).await?;
+        Ok(had_active)
+    }
+
     fn sync_running(&mut self, now: OffsetDateTime) {
         let Some(active) = &mut self.active else {
             return;
