@@ -89,6 +89,7 @@ fn event(
         track_id,
         position_ms: 0,
         duration_ms,
+        volume: 1.0,
         backend: PlaybackBackendKind::Foobar2000,
     })
 }

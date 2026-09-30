@@ -828,6 +828,7 @@ impl PlaybackApplicationService for UnavailablePlaybackService {
             track_id: None,
             position_ms: 0,
             duration_ms: None,
+            volume: 1.0,
             backend: fishmuse_playback::PlaybackBackendKind::Foobar2000,
         })
     }

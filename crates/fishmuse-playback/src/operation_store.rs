@@ -5,7 +5,7 @@ use fishmuse_domain::{AppResult, OperationId};
 
 use crate::{CommandFingerprint, PlaybackSnapshot};
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum OperationClaim {
     Acquired,
     InFlight,

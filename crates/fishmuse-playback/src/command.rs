@@ -2,7 +2,7 @@ use fishmuse_domain::{OperationId, PlayableSource};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum PlaybackCommand {
     Play {
@@ -15,11 +15,18 @@ pub enum PlaybackCommand {
     Resume {
         operation_id: OperationId,
     },
+    Stop {
+        operation_id: OperationId,
+    },
     Seek {
         position_ms: u64,
         operation_id: OperationId,
     },
     SkipNext {
+        operation_id: OperationId,
+    },
+    SetVolume {
+        volume: f32,
         operation_id: OperationId,
     },
 }
@@ -31,8 +38,10 @@ impl PlaybackCommand {
             Self::Play { operation_id, .. }
             | Self::Pause { operation_id }
             | Self::Resume { operation_id }
+            | Self::Stop { operation_id }
             | Self::Seek { operation_id, .. }
-            | Self::SkipNext { operation_id } => *operation_id,
+            | Self::SkipNext { operation_id }
+            | Self::SetVolume { operation_id, .. } => *operation_id,
         }
     }
 
@@ -50,11 +59,16 @@ impl PlaybackCommand {
             }
             Self::Pause { .. } => hasher.update([1]),
             Self::Resume { .. } => hasher.update([2]),
+            Self::Stop { .. } => hasher.update([5]),
             Self::Seek { position_ms, .. } => {
                 hasher.update([3]);
                 hasher.update(position_ms.to_be_bytes());
             }
             Self::SkipNext { .. } => hasher.update([4]),
+            Self::SetVolume { volume, .. } => {
+                hasher.update([6]);
+                hasher.update(volume.to_bits().to_be_bytes());
+            }
         }
         CommandFingerprint(hasher.finalize().into())
     }

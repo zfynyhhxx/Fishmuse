@@ -58,6 +58,7 @@ impl PlaybackBackend for FakePlaybackBackend {
             track_id: Some(fishmuse_domain::TrackId::new()),
             position_ms: 0,
             duration_ms: Some(1_000),
+            volume: 1.0,
             backend: PlaybackBackendKind::Foobar2000,
         })
     }
@@ -73,6 +74,35 @@ impl PlaybackBackend for FakePlaybackBackend {
 
 fn pause(operation_id: OperationId) -> PlaybackCommand {
     PlaybackCommand::Pause { operation_id }
+}
+
+#[test]
+fn stop_and_volume_commands_have_stable_distinct_fingerprints() {
+    let operation_id = OperationId::new();
+    let stop = PlaybackCommand::Stop { operation_id };
+    let quiet = PlaybackCommand::SetVolume {
+        volume: 0.25,
+        operation_id,
+    };
+    let loud = PlaybackCommand::SetVolume {
+        volume: 0.75,
+        operation_id,
+    };
+
+    assert_eq!(
+        stop.fingerprint().to_hex(),
+        "e77b9a9ae9e30b0dbdb6f510a264ef9de781501d7b6b92ae89eb059c5ab743db"
+    );
+    assert_eq!(
+        quiet.fingerprint().to_hex(),
+        "c5c89289ab1a882165c53ce5e229ffba9f95044de372f7f29f54ecdf8893f2f3"
+    );
+    assert_eq!(
+        loud.fingerprint().to_hex(),
+        "0bb3fee0c7b37b9f91fccfc81ace31c79c2d3f8d156dd967494fc9abf3924f23"
+    );
+    assert_ne!(stop.fingerprint(), quiet.fingerprint());
+    assert_ne!(quiet.fingerprint(), loud.fingerprint());
 }
 
 struct BlockingOperationStore {

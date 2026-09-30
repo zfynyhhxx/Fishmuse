@@ -63,6 +63,9 @@ impl PlaybackStateMachine {
             PlaybackCommand::Resume { .. } if self.snapshot.status != PlaybackStatus::Paused => {
                 return Err(playback_error("invalid_playback_transition"));
             }
+            PlaybackCommand::SetVolume { volume, .. } if !valid_volume(*volume) => {
+                return Err(playback_error("invalid_playback_volume"));
+            }
             PlaybackCommand::Seek { position_ms, .. } => {
                 if !matches!(
                     self.snapshot.status,
@@ -93,6 +96,9 @@ impl PlaybackStateMachine {
 }
 
 fn validate_snapshot(snapshot: &PlaybackSnapshot) -> AppResult<()> {
+    if !valid_volume(snapshot.volume) {
+        return Err(playback_error("invalid_playback_volume"));
+    }
     if snapshot
         .duration_ms
         .is_some_and(|duration| snapshot.position_ms > duration)
@@ -107,6 +113,10 @@ fn validate_snapshot(snapshot: &PlaybackSnapshot) -> AppResult<()> {
         return Err(playback_error("invalid_playback_state"));
     }
     Ok(())
+}
+
+pub(crate) fn valid_volume(volume: f32) -> bool {
+    volume.is_finite() && (0.0..=1.0).contains(&volume)
 }
 
 fn valid_transition(current: PlaybackStatus, next: PlaybackStatus) -> bool {

@@ -1,6 +1,12 @@
 use std::{fs, path::Path};
 
-use fishmuse_playback::foobar::protocol::{ProtocolErrorCode, SequenceTracker, decode_json};
+use fishmuse_playback::{
+    PlaybackBackendKind, PlaybackStatus,
+    foobar::{
+        StateReconciler,
+        protocol::{ProtocolErrorCode, SequenceTracker, StateSnapshot, decode_json},
+    },
+};
 use serde_json::{Value, json};
 
 const VECTOR_NAMES: &[&str] = &[
@@ -125,4 +131,43 @@ fn protocol_sequence_tracker_rejects_duplicate_and_older_events() {
     assert!(!tracker.accept(6));
     assert!(tracker.accept(8));
     assert_eq!(tracker.last_applied(), Some(8));
+}
+
+#[test]
+fn reconciliation_preserves_valid_wire_volume_as_domain_f32() {
+    let mut reconciler = StateReconciler::default();
+    let snapshot = reconciler
+        .begin_session(StateSnapshot {
+            session_id: uuid::Uuid::now_v7(),
+            revision: 1,
+            status: PlaybackStatus::Stopped,
+            track_id: None,
+            position_ms: 0,
+            duration_ms: None,
+            volume: 0.625_f64,
+            backend: PlaybackBackendKind::Foobar2000,
+        })
+        .expect("valid wire volume");
+
+    assert_eq!(snapshot.volume, 0.625_f32);
+}
+
+#[test]
+fn reconciliation_rejects_invalid_wire_volume() {
+    for volume in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY, -0.01, 1.01] {
+        let mut reconciler = StateReconciler::default();
+        let error = reconciler
+            .begin_session(StateSnapshot {
+                session_id: uuid::Uuid::now_v7(),
+                revision: 1,
+                status: PlaybackStatus::Stopped,
+                track_id: None,
+                position_ms: 0,
+                duration_ms: None,
+                volume,
+                backend: PlaybackBackendKind::Foobar2000,
+            })
+            .expect_err("invalid wire volume");
+        assert_eq!(error.user_message, "invalid_playback_volume");
+    }
 }

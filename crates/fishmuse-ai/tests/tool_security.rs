@@ -67,6 +67,7 @@ impl RecordingPlaybackBackend {
             track_id: None,
             position_ms: 0,
             duration_ms: None,
+            volume: 1.0,
             backend: PlaybackBackendKind::Foobar2000,
         }
     }

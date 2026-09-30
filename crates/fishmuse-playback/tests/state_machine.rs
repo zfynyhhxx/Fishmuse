@@ -12,8 +12,85 @@ fn snapshot(revision: u64, status: PlaybackStatus, position_ms: u64) -> Playback
             .then(TrackId::new),
         position_ms,
         duration_ms: Some(10_000),
+        volume: 1.0,
         backend: PlaybackBackendKind::Foobar2000,
     }
+}
+
+#[test]
+fn volume_must_be_finite_and_inside_the_normalized_range() {
+    for volume in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY, -0.01, 1.01] {
+        let mut invalid_snapshot = snapshot(0, PlaybackStatus::Stopped, 0);
+        invalid_snapshot.volume = volume;
+        assert_eq!(
+            PlaybackStateMachine::new(invalid_snapshot)
+                .expect_err("invalid snapshot volume")
+                .user_message,
+            "invalid_playback_volume"
+        );
+    }
+
+    let machine = PlaybackStateMachine::new(snapshot(0, PlaybackStatus::Stopped, 0))
+        .expect("valid stopped state");
+    for volume in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY, -0.01, 1.01] {
+        assert_eq!(
+            machine
+                .validate_command(
+                    &PlaybackCommand::SetVolume {
+                        volume,
+                        operation_id: OperationId::new(),
+                    },
+                    true,
+                )
+                .expect_err("invalid command volume")
+                .user_message,
+            "invalid_playback_volume"
+        );
+    }
+
+    for volume in [0.0, 0.5, 1.0] {
+        machine
+            .validate_command(
+                &PlaybackCommand::SetVolume {
+                    volume,
+                    operation_id: OperationId::new(),
+                },
+                true,
+            )
+            .expect("normalized volume is valid");
+    }
+}
+
+#[test]
+fn stop_is_valid_from_an_active_or_stopped_state() {
+    for status in [
+        PlaybackStatus::Stopped,
+        PlaybackStatus::Loading,
+        PlaybackStatus::Playing,
+        PlaybackStatus::Paused,
+    ] {
+        let machine = PlaybackStateMachine::new(snapshot(0, status, 0)).expect("valid state");
+        machine
+            .validate_command(
+                &PlaybackCommand::Stop {
+                    operation_id: OperationId::new(),
+                },
+                true,
+            )
+            .expect("stop remains idempotent");
+    }
+}
+
+#[test]
+fn disconnected_event_uses_a_safe_full_volume_default() {
+    let snapshot = PlaybackEvent::Disconnected {
+        revision: 9,
+        backend: PlaybackBackendKind::Foobar2000,
+    }
+    .into_snapshot();
+
+    assert_eq!(snapshot.volume, 1.0);
+    assert_eq!(snapshot.status, PlaybackStatus::Unavailable);
 }
 
 #[test]

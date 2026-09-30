@@ -38,6 +38,7 @@ fn snapshot(track_id: TrackId) -> PlaybackSnapshot {
         track_id: Some(track_id),
         position_ms: 2_000,
         duration_ms: Some(20_000),
+        volume: 0.5,
         backend: PlaybackBackendKind::Foobar2000,
     }
 }

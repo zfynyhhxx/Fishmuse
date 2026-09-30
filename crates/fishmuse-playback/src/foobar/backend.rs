@@ -360,6 +360,11 @@ impl PlaybackBackend for FoobarBackend {
             PlaybackCommand::Resume { operation_id } => {
                 self.execute_wire(operation_id, WireCommand::Resume).await
             }
+            command @ (PlaybackCommand::Stop { .. } | PlaybackCommand::SetVolume { .. }) => {
+                let operation_id = command.operation_id();
+                let wire_command = control_wire_command(command)?;
+                self.execute_wire(operation_id, wire_command).await
+            }
             PlaybackCommand::Seek {
                 position_ms,
                 operation_id,
@@ -380,6 +385,23 @@ impl PlaybackBackend for FoobarBackend {
 
     fn subscribe(&self) -> broadcast::Receiver<PlaybackEvent> {
         self.inner.events.subscribe()
+    }
+}
+
+fn control_wire_command(command: PlaybackCommand) -> AppResult<WireCommand> {
+    match command {
+        PlaybackCommand::Stop { .. } => Ok(WireCommand::Stop),
+        PlaybackCommand::SetVolume { volume, .. }
+            if volume.is_finite() && (0.0..=1.0).contains(&volume) =>
+        {
+            Ok(WireCommand::SetVolume {
+                volume: f64::from(volume),
+            })
+        }
+        PlaybackCommand::SetVolume { .. } => {
+            Err(crate::state::playback_error("invalid_playback_volume"))
+        }
+        _ => unreachable!("only provider-neutral control commands are mapped here"),
     }
 }
 
@@ -522,6 +544,7 @@ async fn mark_disconnected(inner: &BackendInner) {
         track_id: None,
         position_ms: 0,
         duration_ms: None,
+        volume: 1.0,
         backend: PlaybackBackendKind::Foobar2000,
     };
     *inner
@@ -587,4 +610,39 @@ fn validate_config(config: &FoobarConfig) -> AppResult<()> {
         });
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use fishmuse_domain::OperationId;
+
+    use super::{PlaybackCommand, WireCommand, control_wire_command};
+
+    #[test]
+    fn stop_and_volume_map_to_frozen_v1_wire_commands() {
+        assert_eq!(
+            control_wire_command(PlaybackCommand::Stop {
+                operation_id: OperationId::new(),
+            })
+            .expect("stop control"),
+            WireCommand::Stop
+        );
+        assert_eq!(
+            control_wire_command(PlaybackCommand::SetVolume {
+                volume: 0.375_f32,
+                operation_id: OperationId::new(),
+            })
+            .expect("volume control"),
+            WireCommand::SetVolume { volume: 0.375_f64 }
+        );
+
+        for volume in [f32::NAN, f32::INFINITY, -0.01, 1.01] {
+            let error = control_wire_command(PlaybackCommand::SetVolume {
+                volume,
+                operation_id: OperationId::new(),
+            })
+            .expect_err("invalid volume must not reach the transport");
+            assert_eq!(error.user_message, "invalid_playback_volume");
+        }
+    }
 }

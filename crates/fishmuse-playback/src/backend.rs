@@ -11,7 +11,7 @@ pub enum PlaybackBackendKind {
     Foobar2000,
 }
 
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct PlaybackSnapshot {
     pub revision: u64,
@@ -19,10 +19,11 @@ pub struct PlaybackSnapshot {
     pub track_id: Option<TrackId>,
     pub position_ms: u64,
     pub duration_ms: Option<u64>,
+    pub volume: f32,
     pub backend: PlaybackBackendKind,
 }
 
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(tag = "event", content = "payload", rename_all = "snake_case")]
 pub enum PlaybackEvent {
     Snapshot(PlaybackSnapshot),
@@ -51,6 +52,7 @@ impl PlaybackEvent {
                 track_id: None,
                 position_ms: 0,
                 duration_ms: None,
+                volume: 1.0,
                 backend,
             },
         }

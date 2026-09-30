@@ -261,6 +261,7 @@ impl PlaybackApplicationService for FakePlayback {
             track_id,
             position_ms: 42,
             duration_ms: Some(100),
+            volume: 0.5,
             backend: PlaybackBackendKind::Foobar2000,
         })
     }
