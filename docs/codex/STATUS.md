@@ -7,16 +7,16 @@ Last updated: 2026-09-30
 - Branch: `feature/fishmuse-v0.1-muse-loop`
 - Head before Task 15: `2908ac9 feat(ui): add streaming AI chat and now playing`
 - Completed implementation tasks: Tasks 1–15, including Task 11.5
-- Current task: V0.1 runtime reliability repair after real-use feedback
+- Current task: V0.1 usability repair design review after real-user UI/playback feedback
 - Remaining release gate: none
 
 ## Next autonomous action
 
-Preserve the standalone V0.1 artifact and the verified repair commits; await the operator's branch-integration choice.
+Obtain written review of `docs/superpowers/specs/2026-09-30-fishmuse-v0.1-usability-repair-design.md`, then create its TDD implementation plan and execute it in the current linked worktree.
 
 ## Current blocker
 
-None. The operator authorized the profile installation and standalone release design. The active profile now contains the verified component, and the real desktop status reached `Playback: Ready` after repairing the connected-state watch update.
+Written usability-repair design review is pending. There is no technical or authorization blocker to the later local implementation and verification work.
 
 ## Required external gates
 
