@@ -40,13 +40,17 @@ pub mod commands;
 pub mod error;
 pub mod events;
 pub mod playback_lifecycle;
+pub mod playback_queue;
 pub mod state;
 
 use commands::{
     ai::{cancel_ai_turn, start_ai_turn},
     choose_library_folders, get_app_status,
     library::{cancel_library_scan, get_library_item, search_library, start_library_scan},
-    playback::{execute_playback, get_playback_state, retry_playback_service},
+    playback::{
+        execute_playback, execute_queue_command, get_playback_queue, get_playback_state,
+        retry_playback_service,
+    },
     settings::{configure_deepseek_key, delete_deepseek_key, get_ai_settings},
 };
 use events::TauriEventSink;
@@ -56,6 +60,7 @@ use playback_lifecycle::{
     ManagedPlaybackService, PlaybackConnection, PlaybackConnectionState,
     UnavailablePlaybackLauncher,
 };
+use playback_queue::PlaybackQueueService;
 use state::{AppState, PlaybackApplicationService, UnavailableAIService};
 
 async fn bootstrap(data_dir: &Path, events: Arc<TauriEventSink>) -> AppResult<Arc<AppState>> {
@@ -80,7 +85,7 @@ async fn bootstrap(data_dir: &Path, events: Arc<TauriEventSink>) -> AppResult<Ar
         .await
         .unwrap_or(None);
     let (playback_control, playback, playback_state) =
-        build_playback_service(database.pool().clone(), user_id).await;
+        build_playback_service(database.pool().clone(), user_id, library.clone()).await;
     let initial_ai = build_ai_service(
         api_key,
         user_id,
@@ -226,6 +231,7 @@ fn build_ai_service(
 async fn build_playback_service(
     pool: sqlx::SqlitePool,
     user_id: fishmuse_domain::UserId,
+    library: Arc<SqliteLibraryRepository>,
 ) -> (
     Arc<dyn PlaybackControl>,
     Arc<dyn PlaybackApplicationService>,
@@ -249,8 +255,9 @@ async fn build_playback_service(
                 connection,
                 Duration::from_secs(5),
             ));
-            let control: Arc<dyn PlaybackControl> = managed.clone();
-            let service: Arc<dyn PlaybackApplicationService> = managed;
+            let queue = Arc::new(PlaybackQueueService::new(user_id, library.clone(), managed));
+            let control: Arc<dyn PlaybackControl> = queue.clone();
+            let service: Arc<dyn PlaybackApplicationService> = queue;
             return (control, service, playback_service_state());
         }
     }
@@ -264,8 +271,9 @@ async fn build_playback_service(
         Arc::new(DisconnectedPlaybackConnection::new()),
         Duration::from_secs(5),
     ));
-    let control: Arc<dyn PlaybackControl> = managed.clone();
-    let service: Arc<dyn PlaybackApplicationService> = managed;
+    let queue = Arc::new(PlaybackQueueService::new(user_id, library, managed));
+    let control: Arc<dyn PlaybackControl> = queue.clone();
+    let service: Arc<dyn PlaybackApplicationService> = queue;
     (control, service, playback_service_state())
 }
 
@@ -505,6 +513,8 @@ pub fn run() {
             start_ai_turn,
             cancel_ai_turn,
             execute_playback,
+            execute_queue_command,
+            get_playback_queue,
             get_playback_state,
             retry_playback_service,
         ])

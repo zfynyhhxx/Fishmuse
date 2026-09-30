@@ -30,6 +30,7 @@ use crate::{
     error::{CommandError, invalid_input, unavailable},
     events::{ApplicationEvent, ApplicationEventSink},
     playback_lifecycle::ManagedPlaybackService,
+    playback_queue::{QueueCommand, QueueSnapshot},
 };
 
 const MAX_LIBRARY_SEARCH_LIMIT: u32 = 100;
@@ -132,6 +133,70 @@ pub enum PlaybackCommandDto {
     SkipNext {
         operation_id: OperationId,
     },
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum QueueCommandDto {
+    PlayNow {
+        track_id: TrackId,
+        context: Vec<TrackId>,
+        operation_id: OperationId,
+    },
+    Add {
+        track_id: TrackId,
+    },
+    PlayAt {
+        index: usize,
+    },
+    Remove {
+        index: usize,
+    },
+    Clear,
+    Previous,
+    Next,
+}
+
+impl From<QueueCommandDto> for QueueCommand {
+    fn from(command: QueueCommandDto) -> Self {
+        match command {
+            QueueCommandDto::PlayNow {
+                track_id,
+                context,
+                operation_id,
+            } => Self::PlayNow {
+                track_id,
+                context,
+                operation_id,
+            },
+            QueueCommandDto::Add { track_id } => Self::Add { track_id },
+            QueueCommandDto::PlayAt { index } => Self::PlayAt { index },
+            QueueCommandDto::Remove { index } => Self::Remove { index },
+            QueueCommandDto::Clear => Self::Clear,
+            QueueCommandDto::Previous => Self::Previous,
+            QueueCommandDto::Next => Self::Next,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct QueueSnapshotDto {
+    pub track_ids: Vec<TrackId>,
+    pub current_index: Option<usize>,
+    pub can_previous: bool,
+    pub can_next: bool,
+}
+
+impl From<QueueSnapshot> for QueueSnapshotDto {
+    fn from(snapshot: QueueSnapshot) -> Self {
+        Self {
+            track_ids: snapshot.track_ids,
+            current_index: snapshot.current_index,
+            can_previous: snapshot.can_previous,
+            can_next: snapshot.can_next,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -271,6 +336,28 @@ pub trait PlaybackApplicationService: Send + Sync {
 
     fn subscribe_service_state(&self) -> Option<watch::Receiver<PlaybackServiceState>> {
         None
+    }
+
+    async fn apply_queue(&self, _command: QueueCommand) -> AppResult<QueueSnapshot> {
+        Err(AppError {
+            code: ErrorCode::BackendUnavailable,
+            category: ErrorCategory::Playback,
+            user_message: "The playback queue is unavailable.".to_owned(),
+            retryable: true,
+            suggested_action: Some("retry".to_owned()),
+            technical_context: None,
+        })
+    }
+
+    async fn queue_snapshot(&self) -> AppResult<QueueSnapshot> {
+        Err(AppError {
+            code: ErrorCode::BackendUnavailable,
+            category: ErrorCategory::Playback,
+            user_message: "The playback queue is unavailable.".to_owned(),
+            retryable: true,
+            suggested_action: Some("retry".to_owned()),
+            technical_context: None,
+        })
     }
 }
 
@@ -690,6 +777,25 @@ impl AppState {
     pub async fn playback_snapshot(&self) -> Result<PlaybackSnapshotDto, CommandError> {
         self.playback
             .snapshot()
+            .await
+            .map(Into::into)
+            .map_err(Into::into)
+    }
+
+    pub async fn execute_queue_command(
+        &self,
+        command: QueueCommandDto,
+    ) -> Result<QueueSnapshotDto, CommandError> {
+        self.playback
+            .apply_queue(command.into())
+            .await
+            .map(Into::into)
+            .map_err(Into::into)
+    }
+
+    pub async fn playback_queue(&self) -> Result<QueueSnapshotDto, CommandError> {
+        self.playback
+            .queue_snapshot()
             .await
             .map(Into::into)
             .map_err(Into::into)

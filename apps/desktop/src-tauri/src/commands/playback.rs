@@ -4,7 +4,7 @@ use tauri::State;
 
 use crate::{
     error::CommandError,
-    state::{AppState, PlaybackCommandDto, PlaybackSnapshotDto},
+    state::{AppState, PlaybackCommandDto, PlaybackSnapshotDto, QueueCommandDto, QueueSnapshotDto},
 };
 
 #[tauri::command]
@@ -20,6 +20,21 @@ pub async fn get_playback_state(
     state: State<'_, Arc<AppState>>,
 ) -> Result<PlaybackSnapshotDto, CommandError> {
     state.playback_snapshot().await
+}
+
+#[tauri::command]
+pub async fn execute_queue_command(
+    state: State<'_, Arc<AppState>>,
+    command: QueueCommandDto,
+) -> Result<QueueSnapshotDto, CommandError> {
+    state.execute_queue_command(command).await
+}
+
+#[tauri::command]
+pub async fn get_playback_queue(
+    state: State<'_, Arc<AppState>>,
+) -> Result<QueueSnapshotDto, CommandError> {
+    state.playback_queue().await
 }
 
 #[tauri::command]

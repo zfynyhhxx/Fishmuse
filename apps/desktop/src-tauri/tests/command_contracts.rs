@@ -18,7 +18,8 @@ use fishmuse_desktop::{
     },
     state::{
         AppState, AppStatusDto, LibraryScanService, PlaybackApplicationService, PlaybackCommandDto,
-        SearchQueryDto, StartTurnDto, UnavailablePlaybackService, default_playback_state,
+        QueueCommandDto, SearchQueryDto, StartTurnDto, UnavailablePlaybackService,
+        default_playback_state,
     },
 };
 use fishmuse_domain::{
@@ -104,6 +105,29 @@ fn invalid_ids_and_unbounded_search_limits_are_rejected() {
         operation_id: OperationId::new(),
     };
     assert_eq!(serde_json::to_value(valid).unwrap()["kind"], "pause");
+}
+
+#[test]
+fn queue_commands_are_closed_logical_id_only_dtos() {
+    let selected = TrackId::new();
+    let command = QueueCommandDto::PlayNow {
+        track_id: selected,
+        context: vec![selected, TrackId::new()],
+        operation_id: OperationId::new(),
+    };
+    let value = serde_json::to_value(command).expect("queue command");
+    assert_eq!(value["kind"], "play_now");
+    assert_eq!(value["context"].as_array().unwrap().len(), 2);
+    assert!(value.get("path").is_none());
+
+    assert!(
+        serde_json::from_value::<QueueCommandDto>(json!({
+            "kind": "add",
+            "track_id": TrackId::new(),
+            "path": "C:\\private.flac"
+        }))
+        .is_err()
+    );
 }
 
 #[test]
