@@ -1,7 +1,9 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { executePlayback } from "../../lib/ipc";
+import type { PlaybackView } from "../../contracts";
+import { MiniPlayer } from "../../components/MiniPlayer";
+import { getTrackArtwork, retryPlaybackService, runPlaybackAction } from "../../lib/ipc";
 import {
   createPlaybackStore,
   playbackStore,
@@ -10,111 +12,171 @@ import {
 import { NowPlayingPage } from "./NowPlayingPage";
 
 vi.mock("../../lib/ipc", () => ({
-  executePlayback: vi.fn(),
+  getTrackArtwork: vi.fn(),
+  retryPlaybackService: vi.fn(),
+  runPlaybackAction: vi.fn(),
 }));
 
 const TRACK_ID = "01999999-9999-7999-8999-999999999981";
+const NEXT_ID = "01999999-9999-7999-8999-999999999982";
+
+const view = (overrides: Partial<PlaybackView> = {}): PlaybackView => ({
+  revision: 1,
+  status: "playing",
+  position_ms: 10_000,
+  duration_ms: 120_000,
+  volume: 0.5,
+  muted: false,
+  track: {
+    id: TRACK_ID,
+    title: "River Song",
+    artist_names: ["Fish Artist"],
+    release_title: "Local Waters",
+    artwork_available: true,
+  },
+  queue: {
+    track_ids: [TRACK_ID, NEXT_ID],
+    current_index: 0,
+    can_previous: true,
+    can_next: true,
+  },
+  external: false,
+  ...overrides,
+});
 
 beforeEach(() => {
   vi.clearAllMocks();
   resetPlaybackState();
+  vi.mocked(getTrackArtwork).mockResolvedValue({ data_url: "data:image/png;base64,cGljdHVyZQ==" });
+  vi.mocked(runPlaybackAction).mockResolvedValue({ view: null, queue: null });
+  vi.mocked(retryPlaybackService).mockResolvedValue(undefined);
 });
 
 afterEach(cleanup);
 
 describe("revisioned playback state", () => {
-  it("interpolates playing position, calibrates on a newer snapshot, ignores stale revisions, and retains the track while unavailable", () => {
+  it("interpolates position, ignores stale revisions, and retains safe metadata while unavailable", () => {
     const store = createPlaybackStore();
-    store.accept({
-      revision: 4,
-      status: "playing",
-      track_id: TRACK_ID,
-      position_ms: 1_000,
-      duration_ms: 5_000,
-    }, 10_000);
-
+    store.accept(view({ revision: 4, position_ms: 1_000 }), 10_000);
     expect(store.project(12_000).position_ms).toBe(3_000);
-    store.accept({
-      revision: 3,
-      status: "paused",
-      track_id: TRACK_ID,
-      position_ms: 500,
-      duration_ms: 5_000,
-    }, 12_000);
+
+    store.accept(view({ revision: 3, status: "paused", position_ms: 500 }), 12_000);
     expect(store.project(12_000).status).toBe("playing");
 
-    store.accept({
-      revision: 5,
-      status: "paused",
-      track_id: TRACK_ID,
-      position_ms: 2_500,
-      duration_ms: 5_000,
-    }, 12_000);
+    store.accept(view({ revision: 5, status: "paused", position_ms: 2_500 }), 12_000);
     expect(store.project(20_000).position_ms).toBe(2_500);
 
-    store.accept({
+    store.accept(view({
       revision: 6,
       status: "unavailable",
-      track_id: null,
       position_ms: 0,
       duration_ms: null,
-    }, 13_000);
+      track: null,
+    }), 13_000);
     expect(store.project(13_000)).toMatchObject({
       status: "unavailable",
-      track_id: TRACK_ID,
       position_ms: 2_500,
-      duration_ms: 5_000,
+      duration_ms: 120_000,
+      track: { title: "River Song" },
     });
+  });
+});
 
-    store.accept({
-      revision: 7,
-      status: "stopped",
-      track_id: null,
-      position_ms: 0,
-      duration_ms: null,
-    }, 14_000);
-    expect(store.project(14_000).status).toBe("stopped");
+describe("safe playback display", () => {
+  it("renders title, artists, release, and bounded artwork without exposing the track UUID", async () => {
+    playbackStore.accept(view());
+    render(<NowPlayingPage />);
+
+    expect(screen.getByRole("heading", { name: "River Song" })).toBeTruthy();
+    expect(screen.getByText("Fish Artist")).toBeTruthy();
+    expect(screen.getByText("Local Waters")).toBeTruthy();
+    expect(screen.queryByText(TRACK_ID)).toBeNull();
+    const artwork = await screen.findByRole("img", { name: "Artwork for River Song" });
+    expect(artwork.getAttribute("src")).toBe("data:image/png;base64,cGljdHVyZQ==");
+    expect(getTrackArtwork).toHaveBeenCalledWith(TRACK_ID);
   });
 
-  it("deduplicates rapid controls and assigns a fresh UUIDv7 operation to pause, resume, seek, and next", async () => {
-    playbackStore.accept({
-      revision: 1,
-      status: "playing",
-      track_id: TRACK_ID,
-      position_ms: 10_000,
-      duration_ms: 120_000,
-    });
-    let resolvePause: ((value: ReturnType<typeof playbackStore.project>) => void) | undefined;
-    vi.mocked(executePlayback)
-      .mockImplementationOnce(() => new Promise((resolve) => { resolvePause = resolve; }))
-      .mockResolvedValueOnce({ revision: 3, status: "playing", track_id: TRACK_ID, position_ms: 10_000, duration_ms: 120_000 })
-      .mockResolvedValueOnce({ revision: 4, status: "playing", track_id: TRACK_ID, position_ms: 42_000, duration_ms: 120_000 })
-      .mockResolvedValueOnce({ revision: 5, status: "playing", track_id: TRACK_ID, position_ms: 0, duration_ms: 180_000 });
+  it("renders deterministic unknown, placeholder, and external playback states", () => {
+    playbackStore.accept(view({
+      track: {
+        id: TRACK_ID,
+        title: "Untitled current track",
+        artist_names: [],
+        release_title: null,
+        artwork_available: false,
+      },
+    }));
+    const first = render(<NowPlayingPage />);
+    expect(screen.getByText("Unknown artist")).toBeTruthy();
+    expect(screen.getByText("Unknown release")).toBeTruthy();
+    expect(screen.getByRole("img", { name: "No artwork available" })).toBeTruthy();
+    first.unmount();
 
+    resetPlaybackState();
+    playbackStore.accept(view({ revision: 2, track: null, external: true }));
     render(<NowPlayingPage />);
+    expect(screen.getByRole("heading", { name: "External playback" })).toBeTruthy();
+  });
+});
+
+describe("complete playback controls", () => {
+  it("gives the MiniPlayer Previous, Play-Pause, and Next controls", () => {
+    playbackStore.accept(view());
+    render(<MiniPlayer />);
+    expect(screen.getByRole("button", { name: "Previous track" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Pause" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Next track" })).toBeTruthy();
+  });
+
+  it("deduplicates rapid controls and exposes stop, seek, volume, mute, and queue actions", async () => {
+    playbackStore.accept(view());
+    let resolvePause: ((value: { view: PlaybackView | null; queue: null }) => void) | undefined;
+    vi.mocked(runPlaybackAction).mockImplementationOnce(() => new Promise((resolve) => {
+      resolvePause = resolve;
+    }));
+    render(<NowPlayingPage />);
+
     const pause = screen.getByRole("button", { name: "Pause" });
     fireEvent.click(pause);
     fireEvent.click(pause);
-    expect(executePlayback).toHaveBeenCalledTimes(1);
+    expect(runPlaybackAction).toHaveBeenCalledTimes(1);
+    await act(async () => resolvePause?.({ view: view({ revision: 2, status: "paused" }), queue: null }));
 
-    await act(async () => {
-      resolvePause?.({ revision: 2, status: "paused", track_id: TRACK_ID, position_ms: 10_000, duration_ms: 120_000 });
-    });
-    fireEvent.click(await screen.findByRole("button", { name: "Resume" }));
-    await waitFor(() => expect(executePlayback).toHaveBeenCalledTimes(2));
-
+    fireEvent.click(screen.getByRole("button", { name: "Stop" }));
     fireEvent.change(screen.getByRole("slider", { name: "Seek position" }), { target: { value: "42000" } });
     fireEvent.click(screen.getByRole("button", { name: "Seek" }));
-    await waitFor(() => expect(executePlayback).toHaveBeenCalledTimes(3));
+    fireEvent.change(screen.getByRole("slider", { name: "Volume" }), { target: { value: "75" } });
+    fireEvent.click(screen.getByRole("button", { name: "Set volume" }));
+    await waitFor(() => expect(runPlaybackAction).toHaveBeenCalledTimes(4));
+    fireEvent.click(screen.getByRole("button", { name: "Mute" }));
+    fireEvent.click(screen.getByRole("button", { name: "Play queued track 2" }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove queued track 2" }));
+    fireEvent.click(screen.getByRole("button", { name: "Clear queue" }));
 
-    fireEvent.click(screen.getByRole("button", { name: "Next track" }));
-    await waitFor(() => expect(executePlayback).toHaveBeenCalledTimes(4));
+    await waitFor(() => expect(runPlaybackAction).toHaveBeenCalledTimes(8));
+    expect(vi.mocked(runPlaybackAction).mock.calls.map(([action]) => action)).toEqual([
+      { kind: "pause" },
+      { kind: "stop" },
+      { kind: "seek", positionMs: 42_000 },
+      { kind: "setVolume", volume: 0.75 },
+      { kind: "setVolume", volume: 0 },
+      { kind: "playAt", index: 1 },
+      { kind: "remove", index: 1 },
+      { kind: "clear" },
+    ]);
+  });
 
-    const commands = vi.mocked(executePlayback).mock.calls.map(([command]) => command);
-    expect(commands.map((command) => command.kind)).toEqual(["pause", "resume", "seek", "skip_next"]);
-    expect(new Set(commands.map((command) => command.operation_id)).size).toBe(4);
-    for (const command of commands) {
-      expect(command.operation_id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
-    }
+  it("clears a generic playback error after a successful retry", async () => {
+    playbackStore.accept(view());
+    vi.mocked(runPlaybackAction).mockRejectedValueOnce(new Error("private backend details"));
+    render(<NowPlayingPage />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Stop" }));
+    expect((await screen.findByRole("alert")).textContent).toMatch(/playback control is unavailable/i);
+    expect(screen.getByRole("alert").textContent?.toLowerCase()).not.toContain("foobar");
+    expect(screen.getByRole("link", { name: "Advanced diagnostics" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Retry playback" }));
+    await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+    expect(retryPlaybackService).toHaveBeenCalledOnce();
   });
 });

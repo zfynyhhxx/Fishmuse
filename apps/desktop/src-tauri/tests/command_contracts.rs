@@ -106,6 +106,21 @@ fn invalid_ids_and_unbounded_search_limits_are_rejected() {
         operation_id: OperationId::new(),
     };
     assert_eq!(serde_json::to_value(valid).unwrap()["kind"], "pause");
+    assert_eq!(
+        serde_json::to_value(PlaybackCommandDto::Stop {
+            operation_id: OperationId::new(),
+        })
+        .unwrap()["kind"],
+        "stop"
+    );
+    assert_eq!(
+        serde_json::to_value(PlaybackCommandDto::SetVolume {
+            volume: 0.5,
+            operation_id: OperationId::new(),
+        })
+        .unwrap()["kind"],
+        "set_volume"
+    );
 }
 
 #[test]

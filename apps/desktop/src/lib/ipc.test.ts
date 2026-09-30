@@ -2,7 +2,13 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { AI_EVENT, parseAIEventEnvelope, retryPlaybackService, startAITurn } from "./ipc";
+import {
+  AI_EVENT,
+  parseAIEventEnvelope,
+  retryPlaybackService,
+  runPlaybackAction,
+  startAITurn,
+} from "./ipc";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn() }));
@@ -16,6 +22,56 @@ beforeEach(() => {
 });
 
 describe("desktop IPC boundary", () => {
+  it("routes every playback action through one typed entry with fresh UUIDv7 operations", async () => {
+    mockedInvoke.mockImplementation(async (command) => {
+      if (command === "execute_queue_command") {
+        return { track_ids: [], current_index: null, can_previous: false, can_next: false };
+      }
+      return {
+        revision: 1,
+        status: "paused",
+        position_ms: 0,
+        duration_ms: null,
+        volume: 0.5,
+        muted: false,
+        track: null,
+        queue: { track_ids: [], current_index: null, can_previous: false, can_next: false },
+        external: false,
+      };
+    });
+
+    await runPlaybackAction({ kind: "playNow", trackId: "track-a", context: ["track-a", "track-b"] });
+    await runPlaybackAction({ kind: "pause" });
+    await runPlaybackAction({ kind: "resume" });
+    await runPlaybackAction({ kind: "stop" });
+    await runPlaybackAction({ kind: "seek", positionMs: 12_000 });
+    await runPlaybackAction({ kind: "setVolume", volume: 0.5 });
+    await runPlaybackAction({ kind: "previous" });
+    await runPlaybackAction({ kind: "next" });
+
+    const commands = mockedInvoke.mock.calls.map(([, args]) => (
+      args as { command: Record<string, unknown> }
+    ).command);
+    const operationIds = commands
+      .map((command) => command.operation_id)
+      .filter((value): value is string => typeof value === "string");
+    expect(operationIds).toHaveLength(6);
+    expect(new Set(operationIds).size).toBe(6);
+    for (const operationId of operationIds) {
+      expect(operationId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+    }
+    expect(mockedInvoke.mock.calls.map(([command]) => command)).toEqual([
+      "execute_queue_command",
+      "execute_playback",
+      "execute_playback",
+      "execute_playback",
+      "execute_playback",
+      "execute_playback",
+      "execute_queue_command",
+      "execute_queue_command",
+    ]);
+  });
+
   it("invokes only the advanced playback service retry", async () => {
     mockedInvoke.mockResolvedValue(undefined);
 

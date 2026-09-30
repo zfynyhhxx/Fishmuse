@@ -1,8 +1,7 @@
 import { useState } from "react";
 
 import type { TrackSummary } from "../../contracts";
-import { chooseLibraryFolders, executePlayback, startLibraryScan } from "../../lib/ipc";
-import { newUuidV7 } from "../../lib/uuid";
+import { chooseLibraryFolders, runPlaybackAction, startLibraryScan } from "../../lib/ipc";
 import { useAppStore } from "../../state/appStore";
 import { playbackStore } from "../../state/playbackStore";
 import { TrackTable } from "./TrackTable";
@@ -21,8 +20,21 @@ export function LibraryPage() {
     if (roots.length > 0) await startLibraryScan(roots);
   };
   const play = async (track: TrackSummary) => {
+    setActionError(null);
     try {
-      playbackStore.accept(await executePlayback({ kind: "play", track_id: track.id, operation_id: newUuidV7() }));
+      playbackStore.acceptActionResult(await runPlaybackAction({
+        kind: "playNow",
+        trackId: track.id,
+        context: tracks.filter((candidate) => candidate.playable).map((candidate) => candidate.id),
+      }));
+    } catch {
+      setActionError("The playback service is unavailable. Retry from advanced diagnostics in Settings.");
+    }
+  };
+  const add = async (track: TrackSummary) => {
+    setActionError(null);
+    try {
+      playbackStore.acceptActionResult(await runPlaybackAction({ kind: "add", trackId: track.id }));
     } catch {
       setActionError("The playback service is unavailable. Retry from advanced diagnostics in Settings.");
     }
@@ -62,6 +74,7 @@ export function LibraryPage() {
           <TrackTable
             tracks={tracks}
             onPlay={(track) => void play(track)}
+            onAdd={(track) => void add(track)}
             hasMore={hasMore}
             loadingMore={loadingMore}
             onLoadMore={() => void loadMore()}

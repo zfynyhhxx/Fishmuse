@@ -7,7 +7,17 @@ import { getAppStatus, retryPlaybackService } from "./lib/ipc";
 vi.mock("./lib/ipc", () => ({
   getAppStatus: vi.fn(),
   retryPlaybackService: vi.fn(),
-  getPlaybackState: vi.fn(async () => ({ revision: 0, status: "unavailable", track_id: null, position_ms: 0, duration_ms: null })),
+  getPlaybackState: vi.fn(async () => ({
+      revision: 0,
+      status: "unavailable",
+      position_ms: 0,
+      duration_ms: null,
+      volume: 1,
+      muted: false,
+      track: null,
+      queue: { track_ids: [], current_index: null, can_previous: false, can_next: false },
+      external: false,
+    })),
   listenForPlaybackState: vi.fn(async () => vi.fn()),
   listenForScanProgress: vi.fn(async () => vi.fn()),
   listenForServiceState: vi.fn(async () => vi.fn()),

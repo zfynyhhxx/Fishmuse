@@ -132,15 +132,66 @@ export type PlaybackCommand =
   | { kind: "play"; track_id: string; operation_id: string }
   | { kind: "pause"; operation_id: string }
   | { kind: "resume"; operation_id: string }
+  | { kind: "stop"; operation_id: string }
   | { kind: "seek"; position_ms: number; operation_id: string }
+  | { kind: "set_volume"; volume: number; operation_id: string }
   | { kind: "skip_next"; operation_id: string };
 
-export type PlaybackSnapshot = {
+export type QueueCommand =
+  | { kind: "play_now"; track_id: string; context: string[]; operation_id: string }
+  | { kind: "add"; track_id: string }
+  | { kind: "play_at"; index: number }
+  | { kind: "remove"; index: number }
+  | { kind: "clear" }
+  | { kind: "previous" }
+  | { kind: "next" };
+
+export type QueueSnapshot = {
+  track_ids: string[];
+  current_index: number | null;
+  can_previous: boolean;
+  can_next: boolean;
+};
+
+export type PlaybackTrack = {
+  id: string;
+  title: string;
+  artist_names: string[];
+  release_title: string | null;
+  artwork_available: boolean;
+};
+
+export type PlaybackView = {
   revision: number;
   status: "stopped" | "loading" | "playing" | "paused" | "unavailable";
-  track_id: string | null;
   position_ms: number;
   duration_ms: number | null;
+  volume: number;
+  muted: boolean;
+  track: PlaybackTrack | null;
+  queue: QueueSnapshot;
+  external: boolean;
+};
+
+export type ArtworkDto = { data_url: string };
+
+export type PlaybackAction =
+  | { kind: "playNow"; trackId: string; context: string[] }
+  | { kind: "add"; trackId: string }
+  | { kind: "playAt"; index: number }
+  | { kind: "remove"; index: number }
+  | { kind: "clear" }
+  | { kind: "previous" }
+  | { kind: "next" }
+  | { kind: "pause" }
+  | { kind: "resume" }
+  | { kind: "stop" }
+  | { kind: "seek"; positionMs: number }
+  | { kind: "setVolume"; volume: number };
+
+export type PlaybackActionResult = {
+  view: PlaybackView | null;
+  queue: QueueSnapshot | null;
 };
 
 export type CommandError = {

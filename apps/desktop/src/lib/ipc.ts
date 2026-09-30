@@ -7,8 +7,13 @@ import {
   type AISettings,
   type AppStatus,
   type LibraryItem,
+  type ArtworkDto,
+  type PlaybackAction,
+  type PlaybackActionResult,
   type PlaybackCommand,
-  type PlaybackSnapshot,
+  type PlaybackView,
+  type QueueCommand,
+  type QueueSnapshot,
   type ScanProgress,
   type SearchQuery,
   type ServiceStateEvent,
@@ -16,6 +21,7 @@ import {
   type TrackSummary,
   type TurnStarted,
 } from "../contracts";
+import { newUuidV7 } from "./uuid";
 
 declare global {
   interface Window {
@@ -91,8 +97,8 @@ export async function startAITurn(
 export const getAppStatus = () => invokeCommand<AppStatus>("get_app_status");
 export const listenForScanProgress = (listener: (progress: ScanProgress) => void) =>
   listen<ScanProgress>(SCAN_PROGRESS_EVENT, (event) => listener(event.payload));
-export const listenForPlaybackState = (listener: (snapshot: PlaybackSnapshot) => void) =>
-  listen<PlaybackSnapshot>(PLAYBACK_STATE_EVENT, (event) => listener(event.payload));
+export const listenForPlaybackState = (listener: (snapshot: PlaybackView) => void) =>
+  listen<PlaybackView>(PLAYBACK_STATE_EVENT, (event) => listener(event.payload));
 export const listenForServiceState = (listener: (state: ServiceStateEvent) => void) =>
   listen<ServiceStateEvent>(SERVICE_STATE_EVENT, (event) => listener(event.payload));
 export const chooseLibraryFolders = () =>
@@ -107,10 +113,10 @@ export const getLibraryItem = (trackId: string) =>
   invokeCommand<LibraryItem | null>("get_library_item", { trackId });
 export const cancelAITurn = (turnId: string) =>
   invokeCommand<void>("cancel_ai_turn", { turnId });
-export const executePlayback = (command: PlaybackCommand) =>
-  invokeCommand<PlaybackSnapshot>("execute_playback", { command });
 export const getPlaybackState = () =>
-  invokeCommand<PlaybackSnapshot>("get_playback_state");
+  invokeCommand<PlaybackView>("get_playback_state");
+export const getTrackArtwork = (trackId: string) =>
+  invokeCommand<ArtworkDto | null>("get_track_artwork", { trackId });
 export const retryPlaybackService = () =>
   invokeCommand<void>("retry_playback_service");
 export const configureDeepSeekKey = (apiKey: string) =>
@@ -118,3 +124,70 @@ export const configureDeepSeekKey = (apiKey: string) =>
 export const deleteDeepSeekKey = () =>
   invokeCommand<void>("delete_deepseek_key");
 export const getAISettings = () => invokeCommand<AISettings>("get_ai_settings");
+
+const executePlayback = (command: PlaybackCommand) =>
+  invokeCommand<PlaybackView>("execute_playback", { command });
+const executeQueueCommand = (command: QueueCommand) =>
+  invokeCommand<QueueSnapshot>("execute_queue_command", { command });
+
+export async function runPlaybackAction(action: PlaybackAction): Promise<PlaybackActionResult> {
+  switch (action.kind) {
+    case "playNow":
+      return {
+        view: null,
+        queue: await executeQueueCommand({
+          kind: "play_now",
+          track_id: action.trackId,
+          context: action.context,
+          operation_id: newUuidV7(),
+        }),
+      };
+    case "add":
+      return {
+        view: null,
+        queue: await executeQueueCommand({ kind: "add", track_id: action.trackId }),
+      };
+    case "playAt":
+      return {
+        view: null,
+        queue: await executeQueueCommand({ kind: "play_at", index: action.index }),
+      };
+    case "remove":
+      return {
+        view: null,
+        queue: await executeQueueCommand({ kind: "remove", index: action.index }),
+      };
+    case "clear":
+    case "previous":
+    case "next":
+      return {
+        view: null,
+        queue: await executeQueueCommand({ kind: action.kind }),
+      };
+    case "pause":
+    case "resume":
+    case "stop":
+      return {
+        view: await executePlayback({ kind: action.kind, operation_id: newUuidV7() }),
+        queue: null,
+      };
+    case "seek":
+      return {
+        view: await executePlayback({
+          kind: "seek",
+          position_ms: Math.max(0, Math.round(action.positionMs)),
+          operation_id: newUuidV7(),
+        }),
+        queue: null,
+      };
+    case "setVolume":
+      return {
+        view: await executePlayback({
+          kind: "set_volume",
+          volume: Math.min(1, Math.max(0, action.volume)),
+          operation_id: newUuidV7(),
+        }),
+        queue: null,
+      };
+  }
+}

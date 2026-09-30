@@ -16,9 +16,19 @@ describe("V0.1 fake playback synchronization", () => {
     await emitEvent("fishmuse://playback-state", {
       revision: 1,
       status: "playing",
-      track_id: TRACK_ID,
       position_ms: 2_000,
       duration_ms: 545_000,
+      volume: 1,
+      muted: false,
+      track: {
+        id: TRACK_ID,
+        title: "So What",
+        artist_names: ["Miles Davis"],
+        release_title: "Kind of Blue",
+        artwork_available: false,
+      },
+      queue: { track_ids: [TRACK_ID], current_index: 0, can_previous: true, can_next: false },
+      external: false,
     });
     await emitAI(3, { event_type: "tool_finished", payload: { id: "tool-1", name: "play_track", result: { status: "playing" } } });
     await emitAI(4, { event_type: "text_delta", payload: { delta: "Playing So What." } });
@@ -26,7 +36,9 @@ describe("V0.1 fake playback synchronization", () => {
 
     await navigate("#/now-playing");
     await expect($("h1=Now Playing")).toBeDisplayed();
-    await expect($(`code=${TRACK_ID}`)).toBeDisplayed();
+    await expect($("h2=So What")).toBeDisplayed();
+    await expect($("p=Miles Davis")).toBeDisplayed();
+    await expect($("p=Kind of Blue")).toBeDisplayed();
     await expect($("span=playing")).toBeDisplayed();
   });
 });

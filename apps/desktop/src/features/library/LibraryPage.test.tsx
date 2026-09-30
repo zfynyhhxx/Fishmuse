@@ -5,19 +5,29 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "../../App";
 import { TrackTable } from "./TrackTable";
 import {
-  executePlayback,
   getAppStatus,
   listenForScanProgress,
+  runPlaybackAction,
   searchLibrary,
 } from "../../lib/ipc";
 
 vi.mock("../../lib/ipc", () => ({
-  executePlayback: vi.fn(),
   getAppStatus: vi.fn(),
-  getPlaybackState: vi.fn(async () => ({ revision: 0, status: "unavailable", track_id: null, position_ms: 0, duration_ms: null })),
+  getPlaybackState: vi.fn(async () => ({
+    revision: 0,
+    status: "unavailable",
+    position_ms: 0,
+    duration_ms: null,
+    volume: 1,
+    muted: false,
+    track: null,
+    queue: { track_ids: [], current_index: null, can_previous: false, can_next: false },
+    external: false,
+  })),
   listenForPlaybackState: vi.fn(async () => vi.fn()),
   listenForScanProgress: vi.fn(),
   listenForServiceState: vi.fn(async () => vi.fn()),
+  runPlaybackAction: vi.fn(),
   searchLibrary: vi.fn(),
 }));
 
@@ -110,13 +120,7 @@ beforeEach(() => {
     ai: { status: "not_configured", implementation: null },
   });
   vi.mocked(listenForScanProgress).mockResolvedValue(vi.fn());
-  vi.mocked(executePlayback).mockResolvedValue({
-    revision: 1,
-    status: "playing",
-    track_id: "01999999-9999-7999-8999-999999999981",
-    position_ms: 0,
-    duration_ms: 180_000,
-  });
+  vi.mocked(runPlaybackAction).mockResolvedValue({ view: null, queue: null });
 });
 
 describe("local library", () => {
@@ -262,20 +266,29 @@ describe("local library", () => {
     fireEvent.click(screen.getByRole("button", { name: "Play River Song" }));
 
     await waitFor(() => {
-      expect(executePlayback).toHaveBeenCalledWith({
-        kind: "play",
-        track_id: "01999999-9999-7999-8999-999999999981",
-        operation_id: expect.stringMatching(/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i),
+      expect(runPlaybackAction).toHaveBeenCalledWith({
+        kind: "playNow",
+        trackId: "01999999-9999-7999-8999-999999999981",
+        context: ["01999999-9999-7999-8999-999999999981"],
       });
     });
-    expect(JSON.stringify(vi.mocked(executePlayback).mock.calls)).not.toMatch(/[A-Z]:\\/);
+    expect(JSON.stringify(vi.mocked(runPlaybackAction).mock.calls)).not.toMatch(/[A-Z]:\\/);
+
+    fireEvent.click(screen.getByRole("button", { name: "Add River Song to queue" }));
+    await waitFor(() => {
+      expect(runPlaybackAction).toHaveBeenLastCalledWith({
+        kind: "add",
+        trackId: "01999999-9999-7999-8999-999999999981",
+      });
+    });
+    expect(vi.mocked(runPlaybackAction).mock.calls.filter(([action]) => action.kind === "playNow")).toHaveLength(1);
   });
 
   it("reports automatic playback startup failure without naming its implementation", async () => {
     vi.mocked(searchLibrary).mockResolvedValue([
       track("01999999-9999-7999-8999-999999999981", "River Song"),
     ]);
-    vi.mocked(executePlayback).mockRejectedValue(new Error("startup failed"));
+    vi.mocked(runPlaybackAction).mockRejectedValue(new Error("startup failed"));
 
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Play River Song" }));
@@ -283,6 +296,27 @@ describe("local library", () => {
     const alert = await screen.findByRole("alert");
     expect(alert.textContent).toMatch(/playback service is unavailable/i);
     expect(alert.textContent?.toLowerCase()).not.toContain("foobar");
+  });
+
+  it("plays with the current ordered playable context and never includes disabled tracks", async () => {
+    vi.mocked(searchLibrary).mockResolvedValue([
+      track("01999999-9999-7999-8999-999999999981", "First"),
+      { ...track("01999999-9999-7999-8999-999999999982", "Unavailable"), playable: false },
+      track("01999999-9999-7999-8999-999999999983", "Third"),
+    ]);
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Play Third" }));
+    await waitFor(() => {
+      expect(runPlaybackAction).toHaveBeenCalledWith({
+        kind: "playNow",
+        trackId: "01999999-9999-7999-8999-999999999983",
+        context: [
+          "01999999-9999-7999-8999-999999999981",
+          "01999999-9999-7999-8999-999999999983",
+        ],
+      });
+    });
   });
 
   it("refreshes the current query when a scan completes", async () => {

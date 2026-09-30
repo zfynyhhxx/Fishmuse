@@ -119,7 +119,7 @@ pub struct TurnStartedDto {
     pub turn_id: AITurnId,
 }
 
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum PlaybackCommandDto {
     Play {
@@ -132,8 +132,15 @@ pub enum PlaybackCommandDto {
     Resume {
         operation_id: OperationId,
     },
+    Stop {
+        operation_id: OperationId,
+    },
     Seek {
         position_ms: u64,
+        operation_id: OperationId,
+    },
+    SetVolume {
+        volume: f32,
         operation_id: OperationId,
     },
     SkipNext {
@@ -858,11 +865,19 @@ impl AppState {
             }
             PlaybackCommandDto::Pause { operation_id } => PlaybackCommand::Pause { operation_id },
             PlaybackCommandDto::Resume { operation_id } => PlaybackCommand::Resume { operation_id },
+            PlaybackCommandDto::Stop { operation_id } => PlaybackCommand::Stop { operation_id },
             PlaybackCommandDto::Seek {
                 position_ms,
                 operation_id,
             } => PlaybackCommand::Seek {
                 position_ms,
+                operation_id,
+            },
+            PlaybackCommandDto::SetVolume {
+                volume,
+                operation_id,
+            } => PlaybackCommand::SetVolume {
+                volume,
                 operation_id,
             },
             PlaybackCommandDto::SkipNext { operation_id } => {

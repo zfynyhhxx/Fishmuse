@@ -1,6 +1,6 @@
 import { $, browser, expect } from "@wdio/globals";
 
-import { completeOnboarding, installDeterministicFakes } from "./harness";
+import { TRACK_ID, completeOnboarding, emitEvent, installDeterministicFakes } from "./harness";
 
 describe("V0.1 Library playback", () => {
   it("keeps Library chrome fixed while only the track viewport scrolls", async () => {
@@ -53,8 +53,25 @@ describe("V0.1 Library playback", () => {
     await expect($("strong=So What")).toBeDisplayed();
 
     await $('button[aria-label="Play So What"]').click();
+    await emitEvent("fishmuse://playback-state", {
+      revision: 1,
+      status: "playing",
+      position_ms: 0,
+      duration_ms: 545_000,
+      volume: 1,
+      muted: false,
+      track: {
+        id: TRACK_ID,
+        title: "So What",
+        artist_names: ["Miles Davis"],
+        release_title: "Kind of Blue",
+        artwork_available: false,
+      },
+      queue: { track_ids: [TRACK_ID], current_index: 0, can_previous: true, can_next: false },
+      external: false,
+    });
     const player = await $('aside[aria-label="Mini player"]');
-    await expect(player.$("strong=Current track")).toBeDisplayed();
-    await expect(player.$("span=playing")).toBeDisplayed();
+    await expect(player.$("strong=So What")).toBeDisplayed();
+    await expect(player.$("span=Miles Davis")).toBeDisplayed();
   });
 });

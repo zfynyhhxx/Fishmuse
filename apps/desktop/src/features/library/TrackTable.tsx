@@ -14,12 +14,13 @@ const duration = (milliseconds: number | null) => {
 type TrackTableProps = {
   tracks: TrackSummary[];
   onPlay: (track: TrackSummary) => void;
+  onAdd?: (track: TrackSummary) => void;
   hasMore: boolean;
   loadingMore: boolean;
   onLoadMore: () => void;
 };
 
-export function TrackTable({ tracks, onPlay, hasMore, loadingMore, onLoadMore }: TrackTableProps) {
+export function TrackTable({ tracks, onPlay, onAdd, hasMore, loadingMore, onLoadMore }: TrackTableProps) {
   const [scrollTop, setScrollTop] = useState(0);
   const [viewportHeight, setViewportHeight] = useState(ROW_HEIGHT);
   const viewport = useRef<HTMLDivElement>(null);
@@ -54,7 +55,7 @@ export function TrackTable({ tracks, onPlay, hasMore, loadingMore, onLoadMore }:
     <div className="track-table" role="table" aria-label="Library tracks" aria-rowcount={tracks.length + 1}>
       <div className="track-row track-header" role="row" aria-rowindex={1}>
         <span role="columnheader">Title</span><span role="columnheader">Artist</span>
-        <span role="columnheader">Release</span><span role="columnheader">Time</span><span />
+        <span role="columnheader">Release</span><span role="columnheader">Time</span><span role="columnheader">Actions</span>
       </div>
       <div className="track-viewport" onScroll={onScroll} ref={viewport}>
         <div style={{ height: tracks.length * ROW_HEIGHT, position: "relative" }}>
@@ -65,7 +66,12 @@ export function TrackTable({ tracks, onPlay, hasMore, loadingMore, onLoadMore }:
                 <span role="cell">{track.artist_names.join(", ") || "Unknown artist"}</span>
                 <span role="cell">{track.release_title ?? "Unknown release"}</span>
                 <span role="cell">{duration(track.duration_ms)}</span>
-                <button type="button" aria-label={`Play ${track.title}`} disabled={!track.playable} onClick={() => onPlay(track)}>▶</button>
+                <div className="track-actions" role="cell">
+                  <button type="button" aria-label={`Play ${track.title}`} disabled={!track.playable} onClick={() => onPlay(track)}>▶</button>
+                  {onAdd ? (
+                    <button type="button" className="secondary" aria-label={`Add ${track.title} to queue`} disabled={!track.playable} onClick={() => onAdd(track)}>＋</button>
+                  ) : null}
+                </div>
               </div>
             ))}
           </div>
