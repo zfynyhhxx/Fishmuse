@@ -8,6 +8,8 @@ use fishmuse_playback::{
 };
 use tokio::sync::{Mutex, broadcast, watch};
 
+const RECONNECT_PULSE_INTERVAL: Duration = Duration::from_millis(100);
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PlaybackConnectionState {
     Ready,
@@ -114,17 +116,25 @@ impl ManagedPlaybackService {
         self.connection.reconnect_now();
 
         let wait_until_ready = async {
+            let mut reconnect_pulse = tokio::time::interval(RECONNECT_PULSE_INTERVAL);
+            reconnect_pulse.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            reconnect_pulse.tick().await;
             loop {
                 if *connection.borrow() == PlaybackConnectionState::Ready {
                     return Ok(());
                 }
-                connection.changed().await.map_err(|_| {
-                    startup_error(
-                        ErrorCode::Unavailable,
-                        "The playback service connection was interrupted.",
-                        "connection state channel closed",
-                    )
-                })?;
+                tokio::select! {
+                    changed = connection.changed() => {
+                        changed.map_err(|_| {
+                            startup_error(
+                                ErrorCode::Unavailable,
+                                "The playback service connection was interrupted.",
+                                "connection state channel closed",
+                            )
+                        })?;
+                    }
+                    _ = reconnect_pulse.tick() => self.connection.reconnect_now(),
+                }
             }
         };
         match tokio::time::timeout(self.readiness_timeout, wait_until_ready).await {
@@ -209,15 +219,89 @@ impl PlaybackBackendLauncher for WindowsPlaybackLauncher {
             mem::{size_of, zeroed},
             os::windows::ffi::OsStrExt,
             ptr::null_mut,
+            sync::atomic::{AtomicIsize, AtomicU32, Ordering},
         };
         use windows_sys::Win32::{
-            Foundation::CloseHandle,
-            System::Threading::GetProcessId,
+            Foundation::{CloseHandle, HWND, LPARAM, WAIT_TIMEOUT},
+            System::Threading::{GetProcessId, WaitForSingleObject},
             UI::{
+                Accessibility::{SetWinEventHook, UnhookWinEvent},
                 Shell::{SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW, ShellExecuteExW},
-                WindowsAndMessaging::SW_HIDE,
+                WindowsAndMessaging::{
+                    DispatchMessageW, EVENT_SYSTEM_FOREGROUND, EnumWindows, GetForegroundWindow,
+                    GetWindowThreadProcessId, MSG, MWMO_INPUTAVAILABLE,
+                    MsgWaitForMultipleObjectsEx, PM_REMOVE, PeekMessageW, QS_ALLINPUT, SW_HIDE,
+                    SetForegroundWindow, ShowWindow, TranslateMessage, WINEVENT_OUTOFCONTEXT,
+                },
             },
         };
+
+        static GUARDED_BACKEND_PROCESS_ID: AtomicU32 = AtomicU32::new(0);
+        static FISHMUSE_WINDOW: AtomicIsize = AtomicIsize::new(0);
+        static FISHMUSE_PROCESS_ID: AtomicU32 = AtomicU32::new(0);
+
+        #[derive(Clone, Copy)]
+        struct BackendWindowGuard {
+            process_id: u32,
+            fishmuse_window: isize,
+            fishmuse_process_id: u32,
+        }
+
+        unsafe fn hide_backend_window(window: HWND, context: BackendWindowGuard) {
+            let mut process_id = 0;
+            unsafe {
+                GetWindowThreadProcessId(window, &mut process_id);
+            }
+            if process_id != context.process_id {
+                return;
+            }
+
+            let was_foreground = !window.is_null() && window == unsafe { GetForegroundWindow() };
+            unsafe {
+                ShowWindow(window, SW_HIDE);
+            }
+            if was_foreground && context.fishmuse_window != 0 {
+                let fishmuse_window = context.fishmuse_window as HWND;
+                let mut fishmuse_process_id = 0;
+                unsafe {
+                    GetWindowThreadProcessId(fishmuse_window, &mut fishmuse_process_id);
+                }
+                if fishmuse_process_id == context.fishmuse_process_id {
+                    unsafe {
+                        SetForegroundWindow(fishmuse_window);
+                    }
+                }
+            }
+        }
+
+        unsafe extern "system" fn keep_backend_hidden(
+            window: HWND,
+            context: LPARAM,
+        ) -> windows_sys::core::BOOL {
+            let context = unsafe { *(context as *const BackendWindowGuard) };
+            unsafe { hide_backend_window(window, context) };
+            1
+        }
+
+        unsafe extern "system" fn keep_backend_from_taking_foreground(
+            _hook: windows_sys::Win32::UI::Accessibility::HWINEVENTHOOK,
+            event: u32,
+            window: HWND,
+            _object_id: i32,
+            _child_id: i32,
+            _event_thread: u32,
+            _event_time: u32,
+        ) {
+            if event != EVENT_SYSTEM_FOREGROUND || window.is_null() {
+                return;
+            }
+            let context = BackendWindowGuard {
+                process_id: GUARDED_BACKEND_PROCESS_ID.load(Ordering::Acquire),
+                fishmuse_window: FISHMUSE_WINDOW.load(Ordering::Acquire),
+                fishmuse_process_id: FISHMUSE_PROCESS_ID.load(Ordering::Acquire),
+            };
+            unsafe { hide_backend_window(window, context) };
+        }
 
         let verb = OsStr::new("open")
             .encode_wide()
@@ -236,6 +320,15 @@ impl PlaybackBackendLauncher for WindowsPlaybackLauncher {
         info.lpFile = executable.as_ptr();
         info.nShow = SW_HIDE;
 
+        let previous_foreground = unsafe { GetForegroundWindow() };
+        let mut previous_foreground_process_id = 0;
+        if !previous_foreground.is_null() {
+            unsafe {
+                GetWindowThreadProcessId(previous_foreground, &mut previous_foreground_process_id);
+            }
+        }
+        let fishmuse_foreground = (previous_foreground_process_id == std::process::id())
+            .then_some(previous_foreground as isize);
         if unsafe { ShellExecuteExW(&mut info) } == 0 {
             return Err(startup_error(
                 ErrorCode::BackendUnavailable,
@@ -247,11 +340,120 @@ impl PlaybackBackendLauncher for WindowsPlaybackLauncher {
             None
         } else {
             let process_id = unsafe { GetProcessId(info.hProcess) };
-            unsafe {
-                CloseHandle(info.hProcess);
+            #[cfg(feature = "live-e2e")]
+            if process_id != 0 {
+                record_live_backend_process(process_id, info.hProcess);
+            }
+            if process_id != 0 {
+                let fishmuse_window = fishmuse_foreground.unwrap_or_default();
+                let process_handle = info.hProcess as isize;
+                std::thread::spawn(move || {
+                    let process_handle = process_handle as _;
+                    let context = BackendWindowGuard {
+                        process_id,
+                        fishmuse_window,
+                        fishmuse_process_id: std::process::id(),
+                    };
+                    GUARDED_BACKEND_PROCESS_ID.store(process_id, Ordering::Release);
+                    FISHMUSE_WINDOW.store(fishmuse_window, Ordering::Release);
+                    FISHMUSE_PROCESS_ID.store(context.fishmuse_process_id, Ordering::Release);
+                    let foreground_hook = unsafe {
+                        SetWinEventHook(
+                            EVENT_SYSTEM_FOREGROUND,
+                            EVENT_SYSTEM_FOREGROUND,
+                            null_mut(),
+                            Some(keep_backend_from_taking_foreground),
+                            process_id,
+                            0,
+                            WINEVENT_OUTOFCONTEXT,
+                        )
+                    };
+                    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+                    while std::time::Instant::now() < deadline
+                        && unsafe { WaitForSingleObject(process_handle, 0) } == WAIT_TIMEOUT
+                    {
+                        unsafe {
+                            EnumWindows(Some(keep_backend_hidden), (&raw const context) as LPARAM);
+                            let mut message: MSG = zeroed();
+                            while PeekMessageW(&raw mut message, null_mut(), 0, 0, PM_REMOVE) != 0 {
+                                TranslateMessage(&raw const message);
+                                DispatchMessageW(&raw const message);
+                            }
+                            MsgWaitForMultipleObjectsEx(
+                                1,
+                                &raw const process_handle,
+                                10,
+                                QS_ALLINPUT,
+                                MWMO_INPUTAVAILABLE,
+                            );
+                        }
+                    }
+                    if !foreground_hook.is_null() {
+                        unsafe {
+                            UnhookWinEvent(foreground_hook);
+                        }
+                    }
+                    if GUARDED_BACKEND_PROCESS_ID
+                        .compare_exchange(process_id, 0, Ordering::AcqRel, Ordering::Acquire)
+                        .is_ok()
+                    {
+                        FISHMUSE_WINDOW.store(0, Ordering::Release);
+                        FISHMUSE_PROCESS_ID.store(0, Ordering::Release);
+                    }
+                    unsafe {
+                        CloseHandle(process_handle);
+                    }
+                });
+            } else {
+                unsafe {
+                    CloseHandle(info.hProcess);
+                }
             }
             (process_id != 0).then_some(process_id)
         };
         Ok(LaunchOutcome { process_id })
     }
+}
+
+#[cfg(all(windows, feature = "live-e2e"))]
+fn record_live_backend_process(
+    process_id: u32,
+    process_handle: windows_sys::Win32::Foundation::HANDLE,
+) {
+    let Some(path) = std::env::var_os("FISHMUSE_LIVE_BACKEND_PID") else {
+        return;
+    };
+    let _ = record_live_process_identity(path, process_id, process_handle);
+}
+
+#[cfg(all(windows, feature = "live-e2e"))]
+pub(crate) fn record_live_process_identity(
+    path: impl AsRef<std::path::Path>,
+    process_id: u32,
+    process_handle: windows_sys::Win32::Foundation::HANDLE,
+) -> std::io::Result<()> {
+    use windows_sys::Win32::{Foundation::FILETIME, System::Threading::GetProcessTimes};
+
+    let mut creation = FILETIME {
+        dwLowDateTime: 0,
+        dwHighDateTime: 0,
+    };
+    let mut exit = creation;
+    let mut kernel = creation;
+    let mut user = creation;
+    if unsafe {
+        GetProcessTimes(
+            process_handle,
+            &raw mut creation,
+            &raw mut exit,
+            &raw mut kernel,
+            &raw mut user,
+        )
+    } == 0
+    {
+        return Err(std::io::Error::last_os_error());
+    }
+    let creation_time =
+        (u64::from(creation.dwHighDateTime) << 32) | u64::from(creation.dwLowDateTime);
+    std::fs::write(path, format!("{process_id}|{creation_time}"))
 }

@@ -1,27 +1,41 @@
 # FishMuse V0.1 Status
 
-Last updated: 2026-09-30
+Last updated: 2026-10-01
 
 ## Repository checkpoint
 
 - Branch: `feature/fishmuse-v0.1-muse-loop`
-- Head before Task 15: `2908ac9 feat(ui): add streaming AI chat and now playing`
-- Completed implementation tasks: Tasks 1–15, including Task 11.5
-- Current task: V0.1 usability repair implementation-plan review
-- Remaining release gate: none
+- Current usability-repair head: Task 10 completion commit (this checkpoint)
+- Completed usability-repair tasks: Tasks 1–10
+- Current task: none
+- Remaining release gate: none for the authorized local V0.1 usability repair
 
 ## Next autonomous action
 
-Obtain review of `docs/superpowers/plans/2026-09-30-fishmuse-v0.1-usability-repair.md`, then execute its ten TDD tasks in the current linked worktree.
+Hand the completed local branch back to the operator. Do not push, publish, install, or deploy without a new explicit request.
 
 ## Current blocker
 
-Implementation-plan review and execution-method choice are pending. There is no technical or authorization blocker to later local implementation and verification work.
+None.
 
 ## Required external gates
 
-- Future live DeepSeek runs remain explicitly operator-authorized and protected by the fixed budget ledger. The current repair uses deterministic AI regressions rather than another paid request.
+- The opted-in real Windows desktop gate passed on 2026-10-01 with the installed foobar2000 component. It started from no FishMuse/foobar process, kept the backend window hidden, exercised every V0.1 control through FishMuse, and validated a settled listen in the isolated SQLite database.
+- No paid DeepSeek request was run during this repair. Future live DeepSeek runs remain explicitly operator-authorized and protected by the fixed budget ledger.
+
+## Final verification
+
+- `scripts/test-unit.ps1`: PASS, including the complete Rust workspace, strict checks, GUI subsystem, lint, typecheck, and 31 React tests.
+- `scripts/test-e2e.ps1`: PASS, 5 specs / 16 desktop scenarios.
+- Production frontend build: PASS.
+- Native component: PASS, CMake configure/build and CTest 1/1 via the Visual Studio-bundled CMake.
+- `scripts/check-secrets.ps1`: PASS, 258 tracked/untracked source files and zero credential findings.
+- `scripts/test-live-fishmuse.ps1`: PASS with every bounded evidence field true, including no visible/foreground backend and persisted listening history.
+- Production `tauri build`: PASS, MSI and NSIS bundles produced without `e2e` or `live-e2e` features.
+- Visual inspection: PASS for default 1000×700, maximized, minimum 720×520, and the live Now Playing screen.
 
 ## Completion state
 
-The runtime repair projects scanned tags into searchable tracks, repairs legacy unprojected assets (including moved files), creates AI conversations before child messages, classifies storage failures correctly, launches foobar2000 through Windows App Paths, nudges reconnect, and builds debug/release binaries as Windows GUI applications. The authorized Release component installed with SHA-256 `357B3B46F1F319A682AF3B064E6CC9E51A1C4A4F1158EAA9B5C8993BF88E17F7`; a real protocol handshake and read-only state request passed. A live desktop run then exposed and repaired a connected-state watch self-deadlock. The rerun stayed responsive with `Database: Ready`, `Playback: Ready`, and `AI: Ready`. A repair scan projected all 2,188 legacy assets, and the production search command returned real tracks. The post-repair unit/static gate, Tauri/WebView2 E2E 4/4, component CTest, secret scan, and diff check pass. The independent `FishMuse-v0.1-windows-x64` directory contains only the portable app, component, Chinese guide, version record, and checksums; the copied app SHA-256 is `6872C0D960DEA3AA7F96403DEBF4D609BF58BD7D80D49546D837DB2C6532E23F`. It launched from that directory with all three services ready and no console window.
+The usability repair now keeps the desktop shell fixed, gives Library sole ownership of its scroll viewport with automatic bounded paging, preserves usable tracks at the supported 720×520 minimum, and prevents Now Playing horizontal overflow. Playback intents launch the installed backend invisibly through one generic managed lifecycle with a bounded five-second readiness window and race-safe reconnect pulses; an exact-PID startup guard prevents the owned backend from showing or taking foreground focus. The UI exposes complete transport, queue, seek, volume, mute, safe metadata, artwork, external-playback, and generic recovery states without naming the implementation. Listening history is connected to production playback events. Scans recover from folder/start/cancel/search/page/play failures, support cancellation, and project tagless filenames safely.
+
+The real gate additionally exposed a SQLite lock-upgrade race and a process-launch wake race. Operation completion now uses an atomic compare-and-swap update without upgrading a read transaction, backed by a deterministic writer-contention regression; the startup supervisor is pulsed within the original five-second contract. The release bundle also declares the checked-in Windows icon explicitly. Current local evidence includes `target/live/fishmuse-desktop-evidence.json`, `target/live/fishmuse-now-playing.png`, three production-window screenshots under `target/acceptance`, and successful MSI/NSIS outputs under `target/release/bundle`.

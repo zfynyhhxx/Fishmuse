@@ -5,6 +5,23 @@ import { retryPlaybackService, runPlaybackAction } from "../../lib/ipc";
 import { playbackStore } from "../../state/playbackStore";
 import { PlaybackQueue } from "./PlaybackQueue";
 
+const GENERIC_PLAYBACK_ERROR = "Playback control is unavailable. Please retry or open advanced diagnostics.";
+const SAFE_PLAYBACK_ERRORS = new Set([
+  GENERIC_PLAYBACK_ERROR,
+  "The playback request is invalid.",
+  "The selected track is unavailable.",
+]);
+
+const playbackErrorMessage = (error: unknown) => {
+  if (error && typeof error === "object" && "user_message" in error && "category" in error) {
+    const { category, user_message: message } = error as { category?: unknown; user_message?: unknown };
+    if (category === "playback" && typeof message === "string" && SAFE_PLAYBACK_ERRORS.has(message)) {
+      return message;
+    }
+  }
+  return GENERIC_PLAYBACK_ERROR;
+};
+
 export function PlaybackControls({ snapshot }: { snapshot: PlaybackView }) {
   const [seekPosition, setSeekPosition] = useState<number | null>(null);
   const [volumeDraft, setVolumeDraft] = useState<number | null>(null);
@@ -21,8 +38,8 @@ export function PlaybackControls({ snapshot }: { snapshot: PlaybackView }) {
       playbackStore.acceptActionResult(await runPlaybackAction(action));
       if (action.kind === "seek") setSeekPosition(null);
       if (action.kind === "setVolume") setVolumeDraft(null);
-    } catch {
-      setError("Playback control is unavailable. Please retry or open advanced diagnostics.");
+    } catch (cause) {
+      setError(playbackErrorMessage(cause));
     } finally {
       inFlight.current.delete(action.kind);
       setPending(new Set(inFlight.current));
@@ -34,7 +51,7 @@ export function PlaybackControls({ snapshot }: { snapshot: PlaybackView }) {
       await retryPlaybackService();
       setError(null);
     } catch {
-      setError("Playback control is unavailable. Please retry or open advanced diagnostics.");
+      setError(GENERIC_PLAYBACK_ERROR);
     }
   };
 

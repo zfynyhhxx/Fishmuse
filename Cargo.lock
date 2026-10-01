@@ -1366,6 +1366,7 @@ dependencies = [
  "futures-util",
  "serde",
  "serde_json",
+ "sqlx",
  "time",
  "tokio",
 ]

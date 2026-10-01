@@ -129,6 +129,51 @@ async fn sqlite_operation_store_persists_safe_failures_without_technical_context
 }
 
 #[tokio::test]
+async fn sqlite_operation_completion_waits_for_an_unrelated_writer_without_lock_upgrade_failure() {
+    let directory = tempfile::TempDir::new().expect("temporary directory");
+    let database = Database::open(&directory.path().join("fishmuse.sqlite3"))
+        .await
+        .expect("database");
+    let user = database.ensure_local_user().await.expect("user");
+    let track = insert_track(&database, user).await;
+    let store = SqliteOperationStore::new(database.pool().clone(), user);
+    let operation_id = OperationId::new();
+    let fingerprint = PlaybackCommand::Pause { operation_id }.fingerprint();
+    store
+        .try_begin(operation_id, fingerprint)
+        .await
+        .expect("claim");
+
+    let mut writer = database.pool().acquire().await.expect("writer connection");
+    sqlx::query("BEGIN IMMEDIATE")
+        .execute(&mut *writer)
+        .await
+        .expect("reserve writer");
+    sqlx::query("UPDATE users SET created_at = created_at WHERE user_id = ?")
+        .bind(user.as_uuid().to_string())
+        .execute(&mut *writer)
+        .await
+        .expect("hold writer");
+
+    let completing_store = store.clone();
+    let completion = tokio::spawn(async move {
+        completing_store
+            .complete(operation_id, &Ok(snapshot(track)))
+            .await
+    });
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    sqlx::query("COMMIT")
+        .execute(&mut *writer)
+        .await
+        .expect("release writer");
+
+    completion
+        .await
+        .expect("completion task")
+        .expect("completion should wait and then succeed");
+}
+
+#[tokio::test]
 async fn stale_persisted_pending_operation_becomes_terminal_instead_of_waiting_or_reexecuting() {
     let database = Database::open_in_memory().await.expect("database");
     let user = database.ensure_local_user().await.expect("user");

@@ -1,6 +1,15 @@
 import { $, browser, expect } from "@wdio/globals";
 
-import { TRACK_ID, completeOnboarding, emitEvent, installDeterministicFakes } from "./harness";
+import {
+  SCAN_ID,
+  TRACK_ID,
+  commandCalls,
+  completeOnboarding,
+  emitEvent,
+  installDeterministicFakes,
+  navigate,
+  waitForCommand,
+} from "./harness";
 
 describe("V0.1 Library playback", () => {
   it("keeps Library chrome fixed while only the track viewport scrolls", async () => {
@@ -44,6 +53,18 @@ describe("V0.1 Library playback", () => {
     expect(geometry.trackScrollTop).toBeGreaterThan(0);
     expect(geometry.trackScrollable).toBe(true);
     expect(geometry.playerVisible).toBe(true);
+
+    await browser.execute(() => {
+      const tracks = document.querySelector<HTMLElement>(".track-viewport");
+      if (!tracks) throw new Error("track viewport missing");
+      tracks.scrollTop = tracks.scrollHeight;
+      tracks.dispatchEvent(new Event("scroll"));
+    });
+    await browser.waitUntil(async () => {
+      const calls = await commandCalls("search_library");
+      return calls.some((call) => (call as { query?: { offset?: number } })?.query?.offset === 100);
+    });
+    await expect($("button=Load more tracks")).not.toExist();
   });
 
   it("plays a local result and updates the global MiniPlayer", async () => {
@@ -73,5 +94,50 @@ describe("V0.1 Library playback", () => {
     const player = await $('aside[aria-label="Mini player"]');
     await expect(player.$("strong=So What")).toBeDisplayed();
     await expect(player.$("span=Miles Davis")).toBeDisplayed();
+  });
+
+  it("disables overlapping scans, cancels the active ID, and reports terminal state", async () => {
+    await installDeterministicFakes();
+    await completeOnboarding();
+
+    const scan = await $("button=Scan folders");
+    await scan.click();
+    await waitForCommand("start_library_scan");
+    await expect(scan).toBeDisabled();
+    const cancel = await $("button=Cancel scan");
+    await expect(cancel).toBeDisplayed();
+    await cancel.click();
+    await waitForCommand("cancel_library_scan");
+    expect(await commandCalls("cancel_library_scan")).toEqual([{ scanId: SCAN_ID }]);
+
+    await emitEvent("fishmuse://scan-progress", {
+      scan_id: SCAN_ID,
+      discovered: 8,
+      parsed: 5,
+      unchanged: 3,
+      failed: 0,
+      status: "cancelled",
+      error: null,
+    });
+    await expect($("strong=Scan cancelled")).toBeDisplayed();
+    await expect(scan).toBeEnabled();
+    await expect($("button=Cancel scan")).not.toExist();
+  });
+
+  it("resets route scrolling and focuses the primary heading", async () => {
+    await browser.setWindowSize(720, 520);
+    await installDeterministicFakes();
+    await completeOnboarding();
+    await navigate("#/settings");
+    await expect($("h1=Settings")).toBeFocused();
+    await browser.execute(() => {
+      const page = document.querySelector<HTMLElement>(".page-scroll");
+      if (!page) throw new Error("page scroller missing");
+      page.scrollTop = 200;
+    });
+
+    await navigate("#/now-playing");
+    await expect($("h1=Now Playing")).toBeFocused();
+    expect(await browser.execute(() => document.querySelector<HTMLElement>(".page-scroll")?.scrollTop)).toBe(0);
   });
 });

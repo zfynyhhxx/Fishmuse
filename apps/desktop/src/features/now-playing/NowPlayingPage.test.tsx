@@ -179,4 +179,58 @@ describe("complete playback controls", () => {
     await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
     expect(retryPlaybackService).toHaveBeenCalledOnce();
   });
+
+  it("shows only an allow-listed structured playback message", async () => {
+    playbackStore.accept(view());
+    vi.mocked(runPlaybackAction).mockRejectedValueOnce({
+      code: "backend_unavailable",
+      category: "playback",
+      user_message: "The selected track is unavailable.",
+      retryable: true,
+      suggested_action: "refresh_playback_state",
+      technical_context: "C:\\private\\music.flac foobar",
+    });
+    render(<NowPlayingPage />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Pause" }));
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("The selected track is unavailable.");
+    expect(alert.textContent).not.toContain("C:\\private");
+    expect(alert.textContent?.toLowerCase()).not.toContain("foobar");
+  });
+
+  it("replaces internal code-style messages with generic recovery copy", async () => {
+    playbackStore.accept(view());
+    vi.mocked(runPlaybackAction).mockRejectedValueOnce({
+      code: "storage_failure",
+      category: "storage",
+      user_message: "storage_failure",
+      retryable: false,
+      suggested_action: null,
+    });
+    render(<NowPlayingPage />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Pause" }));
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toMatch(/playback control is unavailable/i);
+    expect(alert.textContent).not.toContain("storage_failure");
+  });
+
+  it("rejects backend-named structured messages and actions at the UI boundary", async () => {
+    playbackStore.accept(view());
+    vi.mocked(runPlaybackAction).mockRejectedValueOnce({
+      code: "backend_unavailable",
+      category: "playback",
+      user_message: "Restart foobar2000 at C:\\private\\music.flac.",
+      retryable: true,
+      suggested_action: "restart_foobar2000",
+    });
+    render(<NowPlayingPage />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Pause" }));
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toMatch(/playback control is unavailable/i);
+    expect(alert.textContent?.toLowerCase()).not.toContain("foobar");
+    expect(alert.textContent).not.toContain("C:\\private");
+  });
 });

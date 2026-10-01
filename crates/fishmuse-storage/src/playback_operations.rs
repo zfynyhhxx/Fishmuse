@@ -162,13 +162,12 @@ impl OperationStore for SqliteOperationStore {
         operation_id: OperationId,
         result: &AppResult<PlaybackSnapshot>,
     ) -> AppResult<()> {
-        let mut transaction = self.pool.begin().await.map_err(db_error)?;
         let current: String = sqlx::query_scalar(
             "SELECT result_json FROM applied_operations WHERE operation_id = ? AND user_id = ?",
         )
         .bind(operation_id.as_uuid().to_string())
         .bind(self.user_text())
-        .fetch_one(&mut *transaction)
+        .fetch_one(&self.pool)
         .await
         .map_err(db_error)?;
         let stored: StoredOperation = serde_json::from_str(&current).map_err(db_error)?;
@@ -197,7 +196,7 @@ impl OperationStore for SqliteOperationStore {
         .bind(operation_id.as_uuid().to_string())
         .bind(self.user_text())
         .bind(current)
-        .execute(&mut *transaction)
+        .execute(&self.pool)
         .await
         .map_err(db_error)?;
         if updated.rows_affected() != 1 {
@@ -206,7 +205,6 @@ impl OperationStore for SqliteOperationStore {
                 "operation completion race",
             ));
         }
-        transaction.commit().await.map_err(db_error)?;
         Ok(())
     }
 }

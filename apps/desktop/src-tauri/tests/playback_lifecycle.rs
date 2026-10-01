@@ -119,6 +119,7 @@ impl PlaybackBackendLauncher for FakeLauncher {
 struct FakeConnection {
     state: watch::Sender<PlaybackConnectionState>,
     reconnects: AtomicUsize,
+    ready_after_reconnects: AtomicUsize,
     shutdown: AtomicBool,
 }
 
@@ -128,12 +129,18 @@ impl FakeConnection {
         Arc::new(Self {
             state,
             reconnects: AtomicUsize::new(0),
+            ready_after_reconnects: AtomicUsize::new(0),
             shutdown: AtomicBool::new(false),
         })
     }
 
     fn set(&self, state: PlaybackConnectionState) {
         self.state.send_replace(state);
+    }
+
+    fn become_ready_after(&self, reconnects: usize) {
+        self.ready_after_reconnects
+            .store(reconnects, Ordering::SeqCst);
     }
 }
 
@@ -144,7 +151,11 @@ impl PlaybackConnection for FakeConnection {
     }
 
     fn reconnect_now(&self) {
-        self.reconnects.fetch_add(1, Ordering::SeqCst);
+        let reconnects = self.reconnects.fetch_add(1, Ordering::SeqCst) + 1;
+        let threshold = self.ready_after_reconnects.load(Ordering::SeqCst);
+        if threshold > 0 && reconnects >= threshold {
+            self.state.send_replace(PlaybackConnectionState::Ready);
+        }
     }
 
     async fn shutdown(&self) {
@@ -219,6 +230,27 @@ async fn disconnected_service_publishes_starting_then_ready_before_execution() {
         control.operation_ids.lock().unwrap().as_slice(),
         &[operation_id]
     );
+}
+
+#[tokio::test(start_paused = true)]
+async fn startup_reconnect_pulses_close_the_launch_to_pipe_readiness_race() {
+    let control = RecordingControl::new();
+    let launcher = FakeLauncher::new();
+    let connection = FakeConnection::new(PlaybackConnectionState::Unavailable);
+    connection.become_ready_after(3);
+    let service = service(control.clone(), launcher.clone(), connection.clone());
+
+    let execute = tokio::spawn({
+        let service = service.clone();
+        async move { service.execute(pause(OperationId::new())).await }
+    });
+    wait_for_launch(&launcher).await;
+    tokio::time::advance(Duration::from_millis(250)).await;
+    execute.await.expect("task").expect("command");
+
+    assert_eq!(launcher.launches.load(Ordering::SeqCst), 1);
+    assert_eq!(connection.reconnects.load(Ordering::SeqCst), 3);
+    assert_eq!(control.executions.load(Ordering::SeqCst), 1);
 }
 
 #[tokio::test(start_paused = true)]

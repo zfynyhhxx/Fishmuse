@@ -1,17 +1,20 @@
 import path from "node:path";
 
-const application = path.resolve(process.cwd(), "../../target/debug/fishmuse-desktop.exe");
+const configuredBinary = process.env.FISHMUSE_LIVE_BINARY;
+if (!configuredBinary) {
+  throw new Error("FISHMUSE_LIVE_BINARY is required; use scripts/test-live-fishmuse.ps1.");
+}
+const application = path.resolve(configuredBinary);
 
 export const config = {
   runner: "local",
-  specs: ["./e2e/**/*.e2e.ts"],
-  exclude: ["./e2e/playback-live.e2e.ts"],
+  specs: ["./e2e/playback-live.e2e.ts"],
   maxInstances: 1,
   services: [
     ["@wdio/tauri-service", {
       appBinaryPath: application,
       driverProvider: "embedded",
-      embeddedPort: 4445,
+      embeddedPort: 4446,
       captureBackendLogs: true,
       captureFrontendLogs: true,
     }],
@@ -21,13 +24,13 @@ export const config = {
     "tauri:options": { application },
   }],
   logLevel: "error",
-  waitforTimeout: 10_000,
+  waitforTimeout: 15_000,
   connectionRetryTimeout: 90_000,
   connectionRetryCount: 2,
   framework: "mocha",
   reporters: ["spec"],
   mochaOpts: {
     ui: "bdd",
-    timeout: 60_000,
+    timeout: 120_000,
   },
 };

@@ -39,4 +39,48 @@ describe("V0.1 fixed desktop shell", () => {
       expect(geometry.playerVisible).toBe(true);
     });
   }
+
+  it("keeps the Library track viewport usable at the minimum window size", async () => {
+    await browser.setWindowSize(720, 520);
+
+    const geometry = await browser.execute(() => {
+      const tracks = document.querySelector<HTMLElement>(".track-viewport");
+      const firstPlay = document.querySelector<HTMLElement>('.track-row button[aria-label^="Play "]');
+      const content = document.querySelector<HTMLElement>(".page-content");
+      if (!tracks || !firstPlay || !content) throw new Error("Library layout nodes missing");
+      const playRect = firstPlay.getBoundingClientRect();
+      const contentRect = content.getBoundingClientRect();
+      return {
+        trackViewportHeight: tracks.clientHeight,
+        firstPlayVisible: playRect.top >= contentRect.top && playRect.bottom <= contentRect.bottom,
+      };
+    });
+
+    expect(geometry.trackViewportHeight).toBeGreaterThanOrEqual(58);
+    expect(geometry.firstPlayVisible).toBe(true);
+  });
+
+  for (const viewport of [{ width: 1000, height: 700 }, { width: 720, height: 520 }]) {
+    it(`keeps Now Playing free of horizontal overflow at ${viewport.width}x${viewport.height}`, async () => {
+      await browser.setWindowSize(viewport.width, viewport.height);
+      await $("a=Now Playing").click();
+      await expect($("h1=Now Playing")).toBeDisplayed();
+
+      const geometry = await browser.execute(() => {
+        const page = document.querySelector<HTMLElement>(".page-scroll");
+        const card = document.querySelector<HTMLElement>(".now-playing-card");
+        if (!page || !card) throw new Error("Now Playing layout nodes missing");
+        const pageRect = page.getBoundingClientRect();
+        const cardRect = card.getBoundingClientRect();
+        return {
+          pageWidth: page.clientWidth,
+          pageScrollWidth: page.scrollWidth,
+          cardInsidePage: cardRect.left >= pageRect.left && cardRect.right <= pageRect.right,
+        };
+      });
+
+      expect(geometry.pageScrollWidth).toBe(geometry.pageWidth);
+      expect(geometry.cardInsidePage).toBe(true);
+    });
+  }
 });

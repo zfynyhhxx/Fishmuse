@@ -1,0 +1,26 @@
+{
+  "productName": "FishMuse Live Gate",
+  "identifier": "com.fishmuse.desktop.live",
+  "build": {
+    "beforeBuildCommand": "pnpm build"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "security": {
+      "capabilities": [
+        {
+          "identifier": "live-gate",
+          "description": "Webdriver capability compiled only into the isolated release-mode live gate.",
+          "windows": ["main"],
+          "permissions": [
+            "core:default",
+            "core:window:default",
+            "core:window:allow-set-focus",
+            "wdio:default",
+            "wdio-webdriver:default"
+          ]
+        }
+      ]
+    }
+  }
+}

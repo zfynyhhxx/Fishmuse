@@ -7,9 +7,9 @@ use std::{
 };
 
 use async_trait::async_trait;
-#[cfg(any(not(windows), feature = "e2e"))]
+#[cfg(any(not(windows), feature = "e2e", feature = "live-e2e"))]
 use fishmuse_ai::UnsupportedCredentialStore;
-#[cfg(all(windows, not(feature = "e2e")))]
+#[cfg(all(windows, not(any(feature = "e2e", feature = "live-e2e"))))]
 use fishmuse_ai::WindowsCredentialStore;
 use fishmuse_ai::{
     AIService, AIServiceState, AIServiceStatus, AgentAIService, AgentLimits, AgentRunner,
@@ -62,6 +62,8 @@ use playback_lifecycle::{
 };
 use playback_queue::PlaybackQueueService;
 use state::{AppState, PlaybackApplicationService, UnavailableAIService};
+
+const MANAGED_PLAYBACK_READINESS_TIMEOUT: Duration = Duration::from_secs(5);
 
 async fn bootstrap(data_dir: &Path, events: Arc<TauriEventSink>) -> AppResult<Arc<AppState>> {
     std::fs::create_dir_all(data_dir).map_err(|error| AppError {
@@ -254,7 +256,7 @@ async fn build_playback_service(
                 manager,
                 Arc::new(WindowsPlaybackLauncher),
                 connection,
-                Duration::from_secs(5),
+                MANAGED_PLAYBACK_READINESS_TIMEOUT,
             ));
             let queue = Arc::new(PlaybackQueueService::new(user_id, library.clone(), managed));
             let control: Arc<dyn PlaybackControl> = queue.clone();
@@ -270,7 +272,7 @@ async fn build_playback_service(
         manager,
         Arc::new(UnavailablePlaybackLauncher),
         Arc::new(DisconnectedPlaybackConnection::new()),
-        Duration::from_secs(5),
+        MANAGED_PLAYBACK_READINESS_TIMEOUT,
     ));
     let queue = Arc::new(PlaybackQueueService::new(user_id, library, managed));
     let control: Arc<dyn PlaybackControl> = queue.clone();
@@ -475,10 +477,10 @@ impl PlaybackBackend for DisconnectedPlaybackBackend {
 
 #[cfg(windows)]
 fn platform_credential_store() -> Arc<dyn CredentialStore> {
-    #[cfg(feature = "e2e")]
+    #[cfg(any(feature = "e2e", feature = "live-e2e"))]
     return Arc::new(UnsupportedCredentialStore);
 
-    #[cfg(not(feature = "e2e"))]
+    #[cfg(not(any(feature = "e2e", feature = "live-e2e")))]
     Arc::new(WindowsCredentialStore::new())
 }
 
@@ -488,8 +490,15 @@ fn platform_credential_store() -> Arc<dyn CredentialStore> {
 }
 
 pub fn run() {
+    #[cfg(all(windows, feature = "live-e2e"))]
+    if let Some(path) = std::env::var_os("FISHMUSE_LIVE_PROCESS_PID") {
+        playback_lifecycle::record_live_process_identity(path, std::process::id(), unsafe {
+            windows_sys::Win32::System::Threading::GetCurrentProcess()
+        })
+        .expect("write live FishMuse process identity");
+    }
     let builder = tauri::Builder::default();
-    #[cfg(feature = "e2e")]
+    #[cfg(any(feature = "e2e", feature = "live-e2e"))]
     let builder = builder
         .plugin(tauri_plugin_wdio::init())
         .plugin(tauri_plugin_wdio_webdriver::init());
@@ -533,7 +542,15 @@ pub fn run() {
 
 #[cfg(all(test, windows))]
 mod tests {
-    use super::current_user_pipe_name;
+    use super::{MANAGED_PLAYBACK_READINESS_TIMEOUT, current_user_pipe_name};
+
+    #[test]
+    fn production_playback_startup_remains_bounded_to_five_seconds() {
+        assert_eq!(
+            MANAGED_PLAYBACK_READINESS_TIMEOUT,
+            std::time::Duration::from_secs(5)
+        );
+    }
 
     #[test]
     fn derives_the_same_user_scoped_foobar_pipe_shape() {

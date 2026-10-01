@@ -1,6 +1,7 @@
 import { browser } from "@wdio/globals";
 
 export const TRACK_ID = "018f0000-0000-7000-8000-000000000001";
+export const SECOND_TRACK_ID = "018f0000-0000-7000-8000-000000000005";
 export const TURN_ID = "018f0000-0000-7000-8000-000000000002";
 export const SCAN_ID = "018f0000-0000-7000-8000-000000000003";
 
@@ -54,6 +55,7 @@ export async function installDeterministicFakes() {
     },
     choose_library_folders: ["C:\\FishMuseE2E\\Music"],
     start_library_scan: { scan_id: SCAN_ID },
+    cancel_library_scan: null,
     search_library: [track],
     execute_playback: {
       revision: 1,
@@ -86,10 +88,22 @@ export async function installDeterministicFakes() {
 }
 
 export async function waitForCommand(command: string) {
+  await waitForCommandCount(command, 1);
+}
+
+export async function waitForCommandCount(command: string, count: number) {
   await browser.waitUntil(() => browser.execute(
-    (commandName) => (window.__FISHMUSE_E2E_CALLS__?.[commandName]?.length ?? 0) > 0,
+    (commandName, minimum) => (window.__FISHMUSE_E2E_CALLS__?.[commandName]?.length ?? 0) >= minimum,
     command,
+    count,
   ));
+}
+
+export async function commandCalls(command: string) {
+  return browser.execute(
+    (commandName) => window.__FISHMUSE_E2E_CALLS__?.[commandName] ?? [],
+    command,
+  );
 }
 
 export async function completeOnboarding() {
